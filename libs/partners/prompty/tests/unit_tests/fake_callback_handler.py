@@ -1,12 +1,12 @@
 """A fake callback handler for testing purposes."""
 
 from itertools import chain
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 from uuid import UUID
 
 from langchain_core.callbacks import AsyncCallbackHandler, BaseCallbackHandler
 from langchain_core.messages import BaseMessage
-from langchain_core.pydantic_v1 import BaseModel
+from pydantic import BaseModel
 
 
 class BaseFakeCallbackHandler(BaseModel):
@@ -41,7 +41,7 @@ class BaseFakeCallbackHandler(BaseModel):
     retriever_errors: int = 0
     retries: int = 0
 
-    input_prompts: List[str] = []
+    input_prompts: list[str] = []
 
 
 class BaseFakeCallbackHandlerMixin(BaseFakeCallbackHandler):
@@ -142,7 +142,7 @@ class FakeCallbackHandler(BaseCallbackHandler, BaseFakeCallbackHandlerMixin):
         return self.ignore_retriever_
 
     def on_llm_start(
-        self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any
+        self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any
     ) -> Any:
         self.input_prompts = prompts
         self.on_llm_start_common()
@@ -259,15 +259,16 @@ class FakeCallbackHandler(BaseCallbackHandler, BaseFakeCallbackHandlerMixin):
     ) -> Any:
         self.on_retriever_error_common()
 
-    def __deepcopy__(self, memo: dict) -> "FakeCallbackHandler":
+    # Overriding since BaseModel has __deepcopy__ method as well
+    def __deepcopy__(self, memo: dict) -> "FakeCallbackHandler":  # type: ignore
         return self
 
 
 class FakeCallbackHandlerWithChatStart(FakeCallbackHandler):
     def on_chat_model_start(
         self,
-        serialized: Dict[str, Any],
-        messages: List[List[BaseMessage]],
+        serialized: dict[str, Any],
+        messages: list[list[BaseMessage]],
         *,
         run_id: UUID,
         parent_run_id: Optional[UUID] = None,
@@ -303,7 +304,7 @@ class FakeAsyncCallbackHandler(AsyncCallbackHandler, BaseFakeCallbackHandlerMixi
         self.on_retry_common()
 
     async def on_llm_start(
-        self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any
+        self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any
     ) -> None:
         self.on_llm_start_common()
 
@@ -391,5 +392,6 @@ class FakeAsyncCallbackHandler(AsyncCallbackHandler, BaseFakeCallbackHandlerMixi
     ) -> None:
         self.on_text_common()
 
-    def __deepcopy__(self, memo: dict) -> "FakeAsyncCallbackHandler":
+    # Overriding since BaseModel has __deepcopy__ method as well
+    def __deepcopy__(self, memo: dict) -> "FakeAsyncCallbackHandler":  # type: ignore
         return self

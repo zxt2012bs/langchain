@@ -1,6 +1,7 @@
 """Module implements an agent that uses OpenAI's APIs function enabled API."""
 
-from typing import Any, List, Optional, Sequence, Tuple, Type, Union
+from collections.abc import Sequence
+from typing import Any, Optional, Union
 
 from langchain_core._api import deprecated
 from langchain_core.agents import AgentAction, AgentFinish
@@ -17,10 +18,11 @@ from langchain_core.prompts.chat import (
     HumanMessagePromptTemplate,
     MessagesPlaceholder,
 )
-from langchain_core.pydantic_v1 import root_validator
 from langchain_core.runnables import Runnable, RunnablePassthrough
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_function
+from pydantic import model_validator
+from typing_extensions import Self
 
 from langchain.agents import BaseSingleActionAgent
 from langchain.agents.format_scratchpad.openai_functions import (
@@ -31,7 +33,7 @@ from langchain.agents.output_parsers.openai_functions import (
 )
 
 
-@deprecated("0.1.0", alternative="create_openai_functions_agent", removal="0.3.0")
+@deprecated("0.1.0", alternative="create_openai_functions_agent", removal="1.0")
 class OpenAIFunctionsAgent(BaseSingleActionAgent):
     """An Agent driven by OpenAIs function powered API.
 
@@ -50,16 +52,16 @@ class OpenAIFunctionsAgent(BaseSingleActionAgent):
     llm: BaseLanguageModel
     tools: Sequence[BaseTool]
     prompt: BasePromptTemplate
-    output_parser: Type[OpenAIFunctionsAgentOutputParser] = (
+    output_parser: type[OpenAIFunctionsAgentOutputParser] = (
         OpenAIFunctionsAgentOutputParser
     )
 
-    def get_allowed_tools(self) -> List[str]:
+    def get_allowed_tools(self) -> list[str]:
         """Get allowed tools."""
         return [t.name for t in self.tools]
 
-    @root_validator(pre=False, skip_on_failure=True)
-    def validate_prompt(cls, values: dict) -> dict:
+    @model_validator(mode="after")
+    def validate_prompt(self) -> Self:
         """Validate prompt.
 
         Args:
@@ -71,28 +73,28 @@ class OpenAIFunctionsAgent(BaseSingleActionAgent):
         Raises:
             ValueError: If `agent_scratchpad` is not in the prompt.
         """
-        prompt: BasePromptTemplate = values["prompt"]
+        prompt: BasePromptTemplate = self.prompt
         if "agent_scratchpad" not in prompt.input_variables:
             raise ValueError(
                 "`agent_scratchpad` should be one of the variables in the prompt, "
                 f"got {prompt.input_variables}"
             )
-        return values
+        return self
 
     @property
-    def input_keys(self) -> List[str]:
+    def input_keys(self) -> list[str]:
         """Get input keys. Input refers to user input here."""
         return ["input"]
 
     @property
-    def functions(self) -> List[dict]:
+    def functions(self) -> list[dict]:
         """Get functions."""
 
         return [dict(convert_to_openai_function(t)) for t in self.tools]
 
     def plan(
         self,
-        intermediate_steps: List[Tuple[AgentAction, str]],
+        intermediate_steps: list[tuple[AgentAction, str]],
         callbacks: Callbacks = None,
         with_functions: bool = True,
         **kwargs: Any,
@@ -134,7 +136,7 @@ class OpenAIFunctionsAgent(BaseSingleActionAgent):
 
     async def aplan(
         self,
-        intermediate_steps: List[Tuple[AgentAction, str]],
+        intermediate_steps: list[tuple[AgentAction, str]],
         callbacks: Callbacks = None,
         **kwargs: Any,
     ) -> Union[AgentAction, AgentFinish]:
@@ -167,7 +169,7 @@ class OpenAIFunctionsAgent(BaseSingleActionAgent):
     def return_stopped_response(
         self,
         early_stopping_method: str,
-        intermediate_steps: List[Tuple[AgentAction, str]],
+        intermediate_steps: list[tuple[AgentAction, str]],
         **kwargs: Any,
     ) -> AgentFinish:
         """Return response when agent has been stopped due to max iterations.
@@ -212,7 +214,7 @@ class OpenAIFunctionsAgent(BaseSingleActionAgent):
         system_message: Optional[SystemMessage] = SystemMessage(
             content="You are a helpful AI assistant."
         ),
-        extra_prompt_messages: Optional[List[BaseMessagePromptTemplate]] = None,
+        extra_prompt_messages: Optional[list[BaseMessagePromptTemplate]] = None,
     ) -> ChatPromptTemplate:
         """Create prompt for this agent.
 
@@ -226,7 +228,7 @@ class OpenAIFunctionsAgent(BaseSingleActionAgent):
             A prompt template to pass into this agent.
         """
         _prompts = extra_prompt_messages or []
-        messages: List[Union[BaseMessagePromptTemplate, BaseMessage]]
+        messages: list[Union[BaseMessagePromptTemplate, BaseMessage]]
         if system_message:
             messages = [system_message]
         else:
@@ -247,7 +249,7 @@ class OpenAIFunctionsAgent(BaseSingleActionAgent):
         llm: BaseLanguageModel,
         tools: Sequence[BaseTool],
         callback_manager: Optional[BaseCallbackManager] = None,
-        extra_prompt_messages: Optional[List[BaseMessagePromptTemplate]] = None,
+        extra_prompt_messages: Optional[list[BaseMessagePromptTemplate]] = None,
         system_message: Optional[SystemMessage] = SystemMessage(
             content="You are a helpful AI assistant."
         ),
@@ -262,7 +264,7 @@ class OpenAIFunctionsAgent(BaseSingleActionAgent):
             extra_prompt_messages: Extra prompt messages to use. Defaults to None.
             system_message: The system message to use.
                 Defaults to a default system message.
-            **kwargs: Additional parameters to pass to the agent.
+            kwargs: Additional parameters to pass to the agent.
         """
         prompt = cls.create_prompt(
             extra_prompt_messages=extra_prompt_messages,

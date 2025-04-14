@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Optional
 
 from langchain_core._api import deprecated
 from langchain_core.callbacks import BaseCallbackManager
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.prompts import PromptTemplate
-from langchain_core.pydantic_v1 import Field
 from langchain_core.tools import BaseTool
+from pydantic import Field
 
+from langchain._api.deprecation import AGENT_DEPRECATION_WARNING
 from langchain.agents.agent import Agent, AgentOutputParser
 from langchain.agents.agent_types import AgentType
 from langchain.agents.conversational.output_parser import ConvoOutputParser
@@ -19,7 +21,11 @@ from langchain.agents.utils import validate_tools_single_input
 from langchain.chains import LLMChain
 
 
-@deprecated("0.1.0", alternative="create_react_agent", removal="0.3.0")
+@deprecated(
+    "0.1.0",
+    message=AGENT_DEPRECATION_WARNING,
+    removal="1.0",
+)
 class ConversationalAgent(Agent):
     """An agent that holds a conversation in addition to using tools."""
 
@@ -66,7 +72,7 @@ class ConversationalAgent(Agent):
         format_instructions: str = FORMAT_INSTRUCTIONS,
         ai_prefix: str = "AI",
         human_prefix: str = "Human",
-        input_variables: Optional[List[str]] = None,
+        input_variables: Optional[list[str]] = None,
     ) -> PromptTemplate:
         """Create prompt in the style of the zero-shot agent.
 
@@ -115,7 +121,7 @@ class ConversationalAgent(Agent):
         format_instructions: str = FORMAT_INSTRUCTIONS,
         ai_prefix: str = "AI",
         human_prefix: str = "Human",
-        input_variables: Optional[List[str]] = None,
+        input_variables: Optional[list[str]] = None,
         **kwargs: Any,
     ) -> Agent:
         """Construct an agent from an LLM and tools.

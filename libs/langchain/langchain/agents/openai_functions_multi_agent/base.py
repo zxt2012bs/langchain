@@ -1,8 +1,9 @@
 """Module implements an agent that uses OpenAI's APIs function enabled API."""
 
 import json
+from collections.abc import Sequence
 from json import JSONDecodeError
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Union
 
 from langchain_core._api import deprecated
 from langchain_core.agents import AgentAction, AgentActionMessageLog, AgentFinish
@@ -21,8 +22,9 @@ from langchain_core.prompts.chat import (
     HumanMessagePromptTemplate,
     MessagesPlaceholder,
 )
-from langchain_core.pydantic_v1 import root_validator
 from langchain_core.tools import BaseTool
+from pydantic import model_validator
+from typing_extensions import Self
 
 from langchain.agents import BaseMultiActionAgent
 from langchain.agents.format_scratchpad.openai_functions import (
@@ -33,7 +35,7 @@ from langchain.agents.format_scratchpad.openai_functions import (
 _FunctionsAgentAction = AgentActionMessageLog
 
 
-def _parse_ai_message(message: BaseMessage) -> Union[List[AgentAction], AgentFinish]:
+def _parse_ai_message(message: BaseMessage) -> Union[list[AgentAction], AgentFinish]:
     """Parse an AI message."""
     if not isinstance(message, AIMessage):
         raise TypeError(f"Expected an AI message got {type(message)}")
@@ -57,7 +59,7 @@ def _parse_ai_message(message: BaseMessage) -> Union[List[AgentAction], AgentFin
                 f"the `arguments` JSON does not contain `actions` key."
             )
 
-        final_tools: List[AgentAction] = []
+        final_tools: list[AgentAction] = []
         for tool_schema in tools:
             if "action" in tool_schema:
                 _tool_input = tool_schema["action"]
@@ -94,7 +96,7 @@ def _parse_ai_message(message: BaseMessage) -> Union[List[AgentAction], AgentFin
     )
 
 
-@deprecated("0.1.0", alternative="create_openai_tools_agent", removal="0.3.0")
+@deprecated("0.1.0", alternative="create_openai_tools_agent", removal="1.0")
 class OpenAIMultiFunctionsAgent(BaseMultiActionAgent):
     """Agent driven by OpenAIs function powered API.
 
@@ -111,27 +113,27 @@ class OpenAIMultiFunctionsAgent(BaseMultiActionAgent):
     tools: Sequence[BaseTool]
     prompt: BasePromptTemplate
 
-    def get_allowed_tools(self) -> List[str]:
+    def get_allowed_tools(self) -> list[str]:
         """Get allowed tools."""
         return [t.name for t in self.tools]
 
-    @root_validator(pre=False, skip_on_failure=True)
-    def validate_prompt(cls, values: dict) -> dict:
-        prompt: BasePromptTemplate = values["prompt"]
+    @model_validator(mode="after")
+    def validate_prompt(self) -> Self:
+        prompt: BasePromptTemplate = self.prompt
         if "agent_scratchpad" not in prompt.input_variables:
             raise ValueError(
                 "`agent_scratchpad` should be one of the variables in the prompt, "
                 f"got {prompt.input_variables}"
             )
-        return values
+        return self
 
     @property
-    def input_keys(self) -> List[str]:
+    def input_keys(self) -> list[str]:
         """Get input keys. Input refers to user input here."""
         return ["input"]
 
     @property
-    def functions(self) -> List[dict]:
+    def functions(self) -> list[dict]:
         """Get the functions for the agent."""
         enum_vals = [t.name for t in self.tools]
         tool_selection = {
@@ -193,10 +195,10 @@ class OpenAIMultiFunctionsAgent(BaseMultiActionAgent):
 
     def plan(
         self,
-        intermediate_steps: List[Tuple[AgentAction, str]],
+        intermediate_steps: list[tuple[AgentAction, str]],
         callbacks: Callbacks = None,
         **kwargs: Any,
-    ) -> Union[List[AgentAction], AgentFinish]:
+    ) -> Union[list[AgentAction], AgentFinish]:
         """Given input, decided what to do.
 
         Args:
@@ -223,10 +225,10 @@ class OpenAIMultiFunctionsAgent(BaseMultiActionAgent):
 
     async def aplan(
         self,
-        intermediate_steps: List[Tuple[AgentAction, str]],
+        intermediate_steps: list[tuple[AgentAction, str]],
         callbacks: Callbacks = None,
         **kwargs: Any,
-    ) -> Union[List[AgentAction], AgentFinish]:
+    ) -> Union[list[AgentAction], AgentFinish]:
         """Async given input, decided what to do.
 
         Args:
@@ -257,7 +259,7 @@ class OpenAIMultiFunctionsAgent(BaseMultiActionAgent):
         system_message: Optional[SystemMessage] = SystemMessage(
             content="You are a helpful AI assistant."
         ),
-        extra_prompt_messages: Optional[List[BaseMessagePromptTemplate]] = None,
+        extra_prompt_messages: Optional[list[BaseMessagePromptTemplate]] = None,
     ) -> BasePromptTemplate:
         """Create prompt for this agent.
 
@@ -271,7 +273,7 @@ class OpenAIMultiFunctionsAgent(BaseMultiActionAgent):
             A prompt template to pass into this agent.
         """
         _prompts = extra_prompt_messages or []
-        messages: List[Union[BaseMessagePromptTemplate, BaseMessage]]
+        messages: list[Union[BaseMessagePromptTemplate, BaseMessage]]
         if system_message:
             messages = [system_message]
         else:
@@ -292,7 +294,7 @@ class OpenAIMultiFunctionsAgent(BaseMultiActionAgent):
         llm: BaseLanguageModel,
         tools: Sequence[BaseTool],
         callback_manager: Optional[BaseCallbackManager] = None,
-        extra_prompt_messages: Optional[List[BaseMessagePromptTemplate]] = None,
+        extra_prompt_messages: Optional[list[BaseMessagePromptTemplate]] = None,
         system_message: Optional[SystemMessage] = SystemMessage(
             content="You are a helpful AI assistant."
         ),
@@ -307,7 +309,7 @@ class OpenAIMultiFunctionsAgent(BaseMultiActionAgent):
             extra_prompt_messages: Extra prompt messages to use. Default is None.
             system_message: The system message to use.
                 Default is a default system message.
-            **kwargs: Additional arguments.
+            kwargs: Additional arguments.
         """
         prompt = cls.create_prompt(
             extra_prompt_messages=extra_prompt_messages,

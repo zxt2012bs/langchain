@@ -1,10 +1,15 @@
-from typing import Dict
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
 from langchain_core.documents import Document
 
 from langchain_community.document_loaders.quip import QuipLoader
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 try:
     from quip_api.quip import QuipClient  # noqa: F401
@@ -15,7 +20,7 @@ except ImportError:
 
 
 @pytest.fixture
-def mock_quip():  # type: ignore
+def mock_quip() -> Iterator[MagicMock]:
     # mock quip_client
     with patch("quip_api.quip.QuipClient") as mock_quip:
         yield mock_quip
@@ -23,9 +28,9 @@ def mock_quip():  # type: ignore
 
 @pytest.mark.requires("quip_api")
 class TestQuipLoader:
-    API_URL = "https://example-api.quip.com"
+    API_URL: str = "https://example-api.quip.com"
     DOC_URL_PREFIX = ("https://example.quip.com",)
-    ACCESS_TOKEN = "api_token"
+    ACCESS_TOKEN: str = "api_token"
 
     MOCK_FOLDER_IDS = ["ABC"]
     MOCK_THREAD_IDS = ["ABC", "DEF"]

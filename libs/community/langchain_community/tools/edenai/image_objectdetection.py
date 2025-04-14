@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Type
 
 from langchain_core.callbacks import CallbackManagerForToolRun
+from pydantic import BaseModel, Field, HttpUrl
 
 from langchain_community.tools.edenai.edenai_base_tool import EdenaiTool
 
 logger = logging.getLogger(__name__)
 
 
-class EdenAiObjectDetectionTool(EdenaiTool):
+class ObjectDetectionInput(BaseModel):
+    query: HttpUrl = Field(description="url of the image to analyze")
+
+
+class EdenAiObjectDetectionTool(EdenaiTool):  # type: ignore[override, override, override]
     """Tool that queries the Eden AI Object detection API.
 
     for api reference check edenai documentation:
@@ -30,6 +35,7 @@ class EdenAiObjectDetectionTool(EdenaiTool):
         (with bounding boxes) objects in an image """
         "Input should be the string url of the image to identify."
     )
+    args_schema: Type[BaseModel] = ObjectDetectionInput
 
     show_positions: bool = False
 
@@ -47,7 +53,12 @@ class EdenAiObjectDetectionTool(EdenaiTool):
             y_min = found_obj.get("y_min")
             y_max = found_obj.get("y_max")
             if self.show_positions and all(
-                [x_min, x_max, y_min, y_max]
+                [
+                    x_min,
+                    x_max,
+                    y_min,
+                    y_max,
+                ]
             ):  # some providers don't return positions
                 label_str += f""",at the position x_min: {x_min}, x_max: {x_max}, 
                 y_min: {y_min}, y_max: {y_max}"""

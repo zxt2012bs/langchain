@@ -1,9 +1,11 @@
 """Test MistralAI Chat API wrapper."""
 
 import os
-from typing import Any, AsyncGenerator, Dict, Generator, List, cast
-from unittest.mock import patch
+from collections.abc import AsyncGenerator, Generator
+from typing import Any, cast
+from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import (
@@ -15,12 +17,14 @@ from langchain_core.messages import (
     SystemMessage,
     ToolCall,
 )
-from langchain_core.pydantic_v1 import SecretStr
+from pydantic import SecretStr
 
 from langchain_mistralai.chat_models import (  # type: ignore[import]
     ChatMistralAI,
     _convert_message_to_mistral_chat_message,
     _convert_mistral_chat_message_to_message,
+    _convert_tool_call_id_to_mistral_compatible,
+    _is_valid_mistral_tool_call_id,
 )
 
 os.environ["MISTRAL_API_KEY"] = "foo"
@@ -43,6 +47,39 @@ def test_mistralai_initialization() -> None:
 
 
 @pytest.mark.parametrize(
+    "model,expected_url",
+    [
+        (ChatMistralAI(model="test"), "https://api.mistral.ai/v1"),  # type: ignore[call-arg, arg-type]
+        (ChatMistralAI(model="test", endpoint="baz"), "baz"),  # type: ignore[call-arg, arg-type]
+    ],
+)
+def test_mistralai_initialization_baseurl(
+    model: ChatMistralAI, expected_url: str
+) -> None:
+    """Test ChatMistralAI initialization."""
+    # Verify that ChatMistralAI can be initialized providing endpoint, but also
+    # with default
+
+    assert model.endpoint == expected_url
+
+
+@pytest.mark.parametrize(
+    "env_var_name",
+    [
+        ("MISTRAL_BASE_URL"),
+    ],
+)
+def test_mistralai_initialization_baseurl_env(env_var_name: str) -> None:
+    """Test ChatMistralAI initialization."""
+    # Verify that ChatMistralAI can be initialized using env variable
+    import os
+
+    os.environ[env_var_name] = "boo"
+    model = ChatMistralAI(model="test")  # type: ignore[call-arg]
+    assert model.endpoint == "boo"
+
+
+@pytest.mark.parametrize(
     ("message", "expected"),
     [
         (
@@ -58,19 +95,23 @@ def test_mistralai_initialization() -> None:
             dict(role="assistant", content="Hello"),
         ),
         (
+            AIMessage(content="{", additional_kwargs={"prefix": True}),
+            dict(role="assistant", content="{", prefix=True),
+        ),
+        (
             ChatMessage(role="assistant", content="Hello"),
             dict(role="assistant", content="Hello"),
         ),
     ],
 )
 def test_convert_message_to_mistral_chat_message(
-    message: BaseMessage, expected: Dict
+    message: BaseMessage, expected: dict
 ) -> None:
     result = _convert_message_to_mistral_chat_message(message)
     assert result == expected
 
 
-def _make_completion_response_from_token(token: str) -> Dict:
+def _make_completion_response_from_token(token: str) -> dict:
     return dict(
         id="abc123",
         model="fake_model",
@@ -128,7 +169,7 @@ async def test_astream_with_callback() -> None:
 
 def test__convert_dict_to_message_tool_call() -> None:
     raw_tool_call = {
-        "id": "abc123",
+        "id": "ssAbar4Dr",
         "function": {
             "arguments": '{"name": "Sally", "hair_color": "green"}',
             "name": "GenerateUsername",
@@ -143,7 +184,7 @@ def test__convert_dict_to_message_tool_call() -> None:
             ToolCall(
                 name="GenerateUsername",
                 args={"name": "Sally", "hair_color": "green"},
-                id="abc123",
+                id="ssAbar4Dr",
                 type="tool_call",
             )
         ],
@@ -154,14 +195,14 @@ def test__convert_dict_to_message_tool_call() -> None:
     # Test malformed tool call
     raw_tool_calls = [
         {
-            "id": "def456",
+            "id": "pL5rEGzxe",
             "function": {
                 "arguments": '{"name": "Sally", "hair_color": "green"}',
                 "name": "GenerateUsername",
             },
         },
         {
-            "id": "abc123",
+            "id": "ssAbar4Dr",
             "function": {
                 "arguments": "oops",
                 "name": "GenerateUsername",
@@ -177,8 +218,8 @@ def test__convert_dict_to_message_tool_call() -> None:
             InvalidToolCall(
                 name="GenerateUsername",
                 args="oops",
-                error="Function GenerateUsername arguments:\n\noops\n\nare not valid JSON. Received JSONDecodeError Expecting value: line 1 column 1 (char 0)",  # noqa: E501
-                id="abc123",
+                error="Function GenerateUsername arguments:\n\noops\n\nare not valid JSON. Received JSONDecodeError Expecting value: line 1 column 1 (char 0)\nFor troubleshooting, visit: https://python.langchain.com/docs/troubleshooting/errors/OUTPUT_PARSING_FAILURE ",  # noqa: E501
+                id="ssAbar4Dr",
                 type="invalid_tool_call",
             ),
         ],
@@ -186,7 +227,7 @@ def test__convert_dict_to_message_tool_call() -> None:
             ToolCall(
                 name="GenerateUsername",
                 args={"name": "Sally", "hair_color": "green"},
-                id="def456",
+                id="pL5rEGzxe",
                 type="tool_call",
             ),
         ],
@@ -196,8 +237,81 @@ def test__convert_dict_to_message_tool_call() -> None:
 
 
 def test_custom_token_counting() -> None:
-    def token_encoder(text: str) -> List[int]:
+    def token_encoder(text: str) -> list[int]:
         return [1, 2, 3]
 
     llm = ChatMistralAI(custom_get_token_ids=token_encoder)
     assert llm.get_token_ids("foo") == [1, 2, 3]
+
+
+def test_tool_id_conversion() -> None:
+    assert _is_valid_mistral_tool_call_id("ssAbar4Dr")
+    assert not _is_valid_mistral_tool_call_id("abc123")
+    assert not _is_valid_mistral_tool_call_id("call_JIIjI55tTipFFzpcP8re3BpM")
+
+    result_map = {
+        "ssAbar4Dr": "ssAbar4Dr",
+        "abc123": "pL5rEGzxe",
+        "call_JIIjI55tTipFFzpcP8re3BpM": "8kxAQvoED",
+    }
+    for input_id, expected_output in result_map.items():
+        assert _convert_tool_call_id_to_mistral_compatible(input_id) == expected_output
+        assert _is_valid_mistral_tool_call_id(expected_output)
+
+
+def test_extra_kwargs() -> None:
+    # Check that foo is saved in extra_kwargs.
+    llm = ChatMistralAI(model="my-model", foo=3, max_tokens=10)  # type: ignore[call-arg]
+    assert llm.max_tokens == 10
+    assert llm.model_kwargs == {"foo": 3}
+
+    # Test that if extra_kwargs are provided, they are added to it.
+    llm = ChatMistralAI(model="my-model", foo=3, model_kwargs={"bar": 2})  # type: ignore[call-arg]
+    assert llm.model_kwargs == {"foo": 3, "bar": 2}
+
+    # Test that if provided twice it errors
+    with pytest.raises(ValueError):
+        ChatMistralAI(model="my-model", foo=3, model_kwargs={"foo": 2})  # type: ignore[call-arg]
+
+
+def test_retry_with_failure_then_success() -> None:
+    """Test that retry mechanism works correctly when
+    first request fails and second succeeds."""
+    # Create a real ChatMistralAI instance
+    chat = ChatMistralAI(max_retries=3)
+
+    # Set up the actual retry mechanism (not just mocking it)
+    # We'll track how many times the function is called
+    call_count = 0
+
+    def mock_post(*args: Any, **kwargs: Any) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+
+        if call_count == 1:
+            raise httpx.RequestError("Connection error", request=MagicMock())
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "Hello!",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
+                "total_tokens": 2,
+            },
+        }
+        return mock_response
+
+    with patch.object(chat.client, "post", side_effect=mock_post):
+        result = chat.invoke("Hello")
+        assert result.content == "Hello!"
+        assert call_count == 2, f"Expected 2 calls, but got {call_count}"

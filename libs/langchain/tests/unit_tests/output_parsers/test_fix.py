@@ -1,17 +1,16 @@
 from datetime import datetime as dt
-from typing import Any, Callable, Dict, Optional, TypeVar
+from typing import Any, Callable, Optional, TypeVar
 
 import pytest
 from langchain_core.exceptions import OutputParserException
+from langchain_core.messages import AIMessage
 from langchain_core.prompts.prompt import PromptTemplate
 from langchain_core.runnables import Runnable, RunnableLambda, RunnablePassthrough
-from pytest_mock import MockerFixture
 
 from langchain.output_parsers.boolean import BooleanOutputParser
 from langchain.output_parsers.datetime import DatetimeOutputParser
 from langchain.output_parsers.fix import BaseOutputParser, OutputFixingParser
 from langchain.output_parsers.prompts import NAIVE_FIX_PROMPT
-from langchain.pydantic_v1 import Extra
 
 T = TypeVar("T")
 
@@ -51,7 +50,7 @@ def test_output_fixing_parser_parse(
         base_parser.attemp_count_before_success
     )  # Success on the (n+1)-th attempt  # noqa
     base_parser = SuccessfulParseAfterRetries(attemp_count_before_success=n)
-    parser = OutputFixingParser(
+    parser = OutputFixingParser[str](
         parser=base_parser,
         max_retries=n,  # n times to retry, that is, (n+1) times call
         retry_chain=RunnablePassthrough(),
@@ -61,6 +60,22 @@ def test_output_fixing_parser_parse(
     assert parser.parse("completion") == "parsed"
     assert base_parser.parse_count == n + 1
     # TODO: test whether "instructions" is passed to the retry_chain
+
+
+def test_output_fixing_parser_from_llm() -> None:
+    def fake_llm(prompt: str) -> AIMessage:
+        return AIMessage("2024-07-08T00:00:00.000000Z")
+
+    llm = RunnableLambda(fake_llm)
+
+    n = 1
+    parser = OutputFixingParser.from_llm(
+        llm=llm,
+        parser=DatetimeOutputParser(),
+        max_retries=n,
+    )
+
+    assert parser.parse("not a date")
 
 
 @pytest.mark.parametrize(
@@ -79,7 +94,7 @@ async def test_output_fixing_parser_aparse(
         base_parser.attemp_count_before_success
     )  # Success on the (n+1)-th attempt   # noqa
     base_parser = SuccessfulParseAfterRetries(attemp_count_before_success=n)
-    parser = OutputFixingParser(
+    parser = OutputFixingParser[str](
         parser=base_parser,
         max_retries=n,  # n times to retry, that is, (n+1) times call
         retry_chain=RunnablePassthrough(),
@@ -93,7 +108,7 @@ async def test_output_fixing_parser_aparse(
 def test_output_fixing_parser_parse_fail() -> None:
     n: int = 5  # Success on the (n+1)-th attempt
     base_parser = SuccessfulParseAfterRetries(attemp_count_before_success=n)
-    parser = OutputFixingParser(
+    parser = OutputFixingParser[str](
         parser=base_parser,
         max_retries=n - 1,  # n-1 times to retry, that is, n times call
         retry_chain=RunnablePassthrough(),
@@ -107,7 +122,7 @@ def test_output_fixing_parser_parse_fail() -> None:
 async def test_output_fixing_parser_aparse_fail() -> None:
     n: int = 5  # Success on the (n+1)-th attempt
     base_parser = SuccessfulParseAfterRetries(attemp_count_before_success=n)
-    parser = OutputFixingParser(
+    parser = OutputFixingParser[str](
         parser=base_parser,
         max_retries=n - 1,  # n-1 times to retry, that is, n times call
         retry_chain=RunnablePassthrough(),
@@ -128,7 +143,9 @@ async def test_output_fixing_parser_aparse_fail() -> None:
 def test_output_fixing_parser_output_type(
     base_parser: BaseOutputParser,
 ) -> None:
-    parser = OutputFixingParser(parser=base_parser, retry_chain=RunnablePassthrough())
+    parser = OutputFixingParser[str](
+        parser=base_parser, retry_chain=RunnablePassthrough()
+    )
     assert parser.OutputType is base_parser.OutputType
 
 
@@ -154,32 +171,19 @@ def test_output_fixing_parser_output_type(
 def test_output_fixing_parser_parse_with_retry_chain(
     input: str,
     base_parser: BaseOutputParser[T],
-    retry_chain: Runnable[Dict[str, Any], str],
+    retry_chain: Runnable[dict[str, Any], str],
     expected: T,
-    mocker: MockerFixture,
 ) -> None:
-    # preparation
-    # NOTE: Extra.allow is necessary in order to use spy and mock
-    retry_chain.Config.extra = Extra.allow  # type: ignore
-    base_parser.Config.extra = Extra.allow  # type: ignore
-    invoke_spy = mocker.spy(retry_chain, "invoke")
     # NOTE: get_format_instructions of some parsers behave randomly
     instructions = base_parser.get_format_instructions()
     object.__setattr__(base_parser, "get_format_instructions", lambda: instructions)
     # test
-    parser = OutputFixingParser(
+    parser = OutputFixingParser[str](
         parser=base_parser,
         retry_chain=retry_chain,
         legacy=False,
     )
     assert parser.parse(input) == expected
-    invoke_spy.assert_called_once_with(
-        dict(
-            instructions=base_parser.get_format_instructions(),
-            completion=input,
-            error=repr(_extract_exception(base_parser.parse, input)),
-        )
-    )
 
 
 @pytest.mark.parametrize(
@@ -204,32 +208,18 @@ def test_output_fixing_parser_parse_with_retry_chain(
 async def test_output_fixing_parser_aparse_with_retry_chain(
     input: str,
     base_parser: BaseOutputParser[T],
-    retry_chain: Runnable[Dict[str, Any], str],
+    retry_chain: Runnable[dict[str, Any], str],
     expected: T,
-    mocker: MockerFixture,
 ) -> None:
-    # preparation
-    # NOTE: Extra.allow is necessary in order to use spy and mock
-    retry_chain.Config.extra = Extra.allow  # type: ignore
-    base_parser.Config.extra = Extra.allow  # type: ignore
-    ainvoke_spy = mocker.spy(retry_chain, "ainvoke")
-    # NOTE: get_format_instructions of some parsers behave randomly
     instructions = base_parser.get_format_instructions()
     object.__setattr__(base_parser, "get_format_instructions", lambda: instructions)
     # test
-    parser = OutputFixingParser(
+    parser = OutputFixingParser[str](
         parser=base_parser,
         retry_chain=retry_chain,
         legacy=False,
     )
     assert (await parser.aparse(input)) == expected
-    ainvoke_spy.assert_called_once_with(
-        dict(
-            instructions=base_parser.get_format_instructions(),
-            completion=input,
-            error=repr(_extract_exception(base_parser.parse, input)),
-        )
-    )
 
 
 def _extract_exception(

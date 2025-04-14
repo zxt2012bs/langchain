@@ -1,8 +1,11 @@
 """Test few shot prompt template."""
 
-from typing import Any, Dict, List, Sequence, Tuple
+import re
+from collections.abc import Sequence
+from typing import Any
 
 import pytest
+from typing_extensions import override
 
 from langchain_core.example_selectors import BaseExampleSelector
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -23,9 +26,9 @@ EXAMPLE_PROMPT = PromptTemplate(
 )
 
 
-@pytest.fixture()
+@pytest.fixture
 @pytest.mark.requires("jinja2")
-def example_jinja2_prompt() -> Tuple[PromptTemplate, List[Dict[str, str]]]:
+def example_jinja2_prompt() -> tuple[PromptTemplate, list[dict[str, str]]]:
     example_template = "{{ word }}: {{ antonym }}"
 
     examples = [
@@ -73,7 +76,10 @@ def test_prompt_missing_input_variables() -> None:
     """Test error is raised when input variables are not provided."""
     # Test when missing in suffix
     template = "This is a {foo} test."
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError,
+        match=re.escape("check for mismatched or missing input parameters from []"),
+    ):
         FewShotPromptTemplate(
             input_variables=[],
             suffix=template,
@@ -90,7 +96,10 @@ def test_prompt_missing_input_variables() -> None:
 
     # Test when missing in prefix
     template = "This is a {foo} test."
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError,
+        match=re.escape("check for mismatched or missing input parameters from []"),
+    ):
         FewShotPromptTemplate(
             input_variables=[],
             suffix="foo",
@@ -227,7 +236,7 @@ def test_partial() -> None:
 
 @pytest.mark.requires("jinja2")
 def test_prompt_jinja2_functionality(
-    example_jinja2_prompt: Tuple[PromptTemplate, List[Dict[str, str]]],
+    example_jinja2_prompt: tuple[PromptTemplate, list[dict[str, str]]],
 ) -> None:
     prefix = "Starting with {{ foo }}"
     suffix = "Ending with {{ bar }}"
@@ -242,7 +251,7 @@ def test_prompt_jinja2_functionality(
     )
     output = prompt.format(foo="hello", bar="bye")
     expected_output = (
-        "Starting with hello\n\n" "happy: sad\n\n" "tall: short\n\n" "Ending with bye"
+        "Starting with hello\n\nhappy: sad\n\ntall: short\n\nEnding with bye"
     )
 
     assert output == expected_output
@@ -250,7 +259,7 @@ def test_prompt_jinja2_functionality(
 
 @pytest.mark.requires("jinja2")
 def test_prompt_jinja2_missing_input_variables(
-    example_jinja2_prompt: Tuple[PromptTemplate, List[Dict[str, str]]],
+    example_jinja2_prompt: tuple[PromptTemplate, list[dict[str, str]]],
 ) -> None:
     """Test error is raised when input variables are not provided."""
     prefix = "Starting with {{ foo }}"
@@ -297,7 +306,7 @@ def test_prompt_jinja2_missing_input_variables(
 
 @pytest.mark.requires("jinja2")
 def test_prompt_jinja2_extra_input_variables(
-    example_jinja2_prompt: Tuple[PromptTemplate, List[Dict[str, str]]],
+    example_jinja2_prompt: tuple[PromptTemplate, list[dict[str, str]]],
 ) -> None:
     """Test error is raised when there are too many input variables."""
     prefix = "Starting with {{ foo }}"
@@ -368,14 +377,15 @@ class AsIsSelector(BaseExampleSelector):
     This selector returns the examples as-is.
     """
 
-    def __init__(self, examples: Sequence[Dict[str, str]]) -> None:
+    def __init__(self, examples: Sequence[dict[str, str]]) -> None:
         """Initializes the selector."""
         self.examples = examples
 
-    def add_example(self, example: Dict[str, str]) -> Any:
+    def add_example(self, example: dict[str, str]) -> Any:
         raise NotImplementedError
 
-    def select_examples(self, input_variables: Dict[str, str]) -> List[dict]:
+    @override
+    def select_examples(self, input_variables: dict[str, str]) -> list[dict]:
         return list(self.examples)
 
 
@@ -463,17 +473,18 @@ class AsyncAsIsSelector(BaseExampleSelector):
     This selector returns the examples as-is.
     """
 
-    def __init__(self, examples: Sequence[Dict[str, str]]) -> None:
+    def __init__(self, examples: Sequence[dict[str, str]]) -> None:
         """Initializes the selector."""
         self.examples = examples
 
-    def add_example(self, example: Dict[str, str]) -> Any:
+    def add_example(self, example: dict[str, str]) -> Any:
         raise NotImplementedError
 
-    def select_examples(self, input_variables: Dict[str, str]) -> List[dict]:
+    def select_examples(self, input_variables: dict[str, str]) -> list[dict]:
         raise NotImplementedError
 
-    async def aselect_examples(self, input_variables: Dict[str, str]) -> List[dict]:
+    @override
+    async def aselect_examples(self, input_variables: dict[str, str]) -> list[dict]:
         return list(self.examples)
 
 

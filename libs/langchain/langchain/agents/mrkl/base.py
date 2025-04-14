@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, List, NamedTuple, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Callable, NamedTuple, Optional
 
 from langchain_core._api import deprecated
 from langchain_core.callbacks import BaseCallbackManager
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.prompts import PromptTemplate
-from langchain_core.pydantic_v1 import Field
 from langchain_core.tools import BaseTool, Tool
+from langchain_core.tools.render import render_text_description
+from pydantic import Field
 
+from langchain._api.deprecation import AGENT_DEPRECATION_WARNING
 from langchain.agents.agent import Agent, AgentExecutor, AgentOutputParser
 from langchain.agents.agent_types import AgentType
 from langchain.agents.mrkl.output_parser import MRKLOutputParser
 from langchain.agents.mrkl.prompt import FORMAT_INSTRUCTIONS, PREFIX, SUFFIX
 from langchain.agents.utils import validate_tools_single_input
 from langchain.chains import LLMChain
-from langchain.tools.render import render_text_description
 
 
 class ChainConfig(NamedTuple):
@@ -34,7 +36,11 @@ class ChainConfig(NamedTuple):
     action_description: str
 
 
-@deprecated("0.1.0", alternative="create_react_agent", removal="0.3.0")
+@deprecated(
+    "0.1.0",
+    message=AGENT_DEPRECATION_WARNING,
+    removal="1.0",
+)
 class ZeroShotAgent(Agent):
     """Agent for the MRKL chain.
 
@@ -78,7 +84,7 @@ class ZeroShotAgent(Agent):
         prefix: str = PREFIX,
         suffix: str = SUFFIX,
         format_instructions: str = FORMAT_INSTRUCTIONS,
-        input_variables: Optional[List[str]] = None,
+        input_variables: Optional[list[str]] = None,
     ) -> PromptTemplate:
         """Create prompt in the style of the zero shot agent.
 
@@ -113,7 +119,7 @@ class ZeroShotAgent(Agent):
         prefix: str = PREFIX,
         suffix: str = SUFFIX,
         format_instructions: str = FORMAT_INSTRUCTIONS,
-        input_variables: Optional[List[str]] = None,
+        input_variables: Optional[list[str]] = None,
         **kwargs: Any,
     ) -> Agent:
         """Construct an agent from an LLM and tools.
@@ -128,7 +134,7 @@ class ZeroShotAgent(Agent):
             format_instructions: The format instructions to use.
                 Defaults to FORMAT_INSTRUCTIONS.
             input_variables: The input variables to use. Defaults to None.
-            **kwargs: Additional parameters to pass to the agent.
+            kwargs: Additional parameters to pass to the agent.
         """
         cls._validate_tools(tools)
         prompt = cls.create_prompt(
@@ -168,13 +174,17 @@ class ZeroShotAgent(Agent):
         super()._validate_tools(tools)
 
 
-@deprecated("0.1.0", removal="0.3.0")
+@deprecated(
+    "0.1.0",
+    message=AGENT_DEPRECATION_WARNING,
+    removal="1.0",
+)
 class MRKLChain(AgentExecutor):
     """Chain that implements the MRKL system."""
 
     @classmethod
     def from_chains(
-        cls, llm: BaseLanguageModel, chains: List[ChainConfig], **kwargs: Any
+        cls, llm: BaseLanguageModel, chains: list[ChainConfig], **kwargs: Any
     ) -> AgentExecutor:
         """User-friendly way to initialize the MRKL chain.
 

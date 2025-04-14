@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any, Optional
 
 from langchain_core._api import deprecated
 from langchain_core.agents import AgentAction
@@ -17,8 +18,8 @@ from langchain_core.prompts.chat import (
     MessagesPlaceholder,
     SystemMessagePromptTemplate,
 )
-from langchain_core.pydantic_v1 import Field
 from langchain_core.tools import BaseTool
+from pydantic import Field
 
 from langchain.agents.agent import Agent, AgentOutputParser
 from langchain.agents.conversational_chat.output_parser import ConvoOutputParser
@@ -31,7 +32,7 @@ from langchain.agents.utils import validate_tools_single_input
 from langchain.chains import LLMChain
 
 
-@deprecated("0.1.0", alternative="create_json_chat_agent", removal="0.3.0")
+@deprecated("0.1.0", alternative="create_json_chat_agent", removal="1.0")
 class ConversationalChatAgent(Agent):
     """An agent designed to hold a conversation in addition to using tools."""
 
@@ -77,7 +78,7 @@ class ConversationalChatAgent(Agent):
         tools: Sequence[BaseTool],
         system_message: str = PREFIX,
         human_message: str = SUFFIX,
-        input_variables: Optional[List[str]] = None,
+        input_variables: Optional[list[str]] = None,
         output_parser: Optional[BaseOutputParser] = None,
     ) -> BasePromptTemplate:
         """Create a prompt for the agent.
@@ -116,10 +117,10 @@ class ConversationalChatAgent(Agent):
         return ChatPromptTemplate(input_variables=input_variables, messages=messages)  # type: ignore[arg-type]
 
     def _construct_scratchpad(
-        self, intermediate_steps: List[Tuple[AgentAction, str]]
-    ) -> List[BaseMessage]:
+        self, intermediate_steps: list[tuple[AgentAction, str]]
+    ) -> list[BaseMessage]:
         """Construct the scratchpad that lets the agent continue its thought process."""
-        thoughts: List[BaseMessage] = []
+        thoughts: list[BaseMessage] = []
         for action, observation in intermediate_steps:
             thoughts.append(AIMessage(content=action.log))
             human_message = HumanMessage(
@@ -137,7 +138,7 @@ class ConversationalChatAgent(Agent):
         output_parser: Optional[AgentOutputParser] = None,
         system_message: str = PREFIX,
         human_message: str = SUFFIX,
-        input_variables: Optional[List[str]] = None,
+        input_variables: Optional[list[str]] = None,
         **kwargs: Any,
     ) -> Agent:
         """Construct an agent from an LLM and tools.

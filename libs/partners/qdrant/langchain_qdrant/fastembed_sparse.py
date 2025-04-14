@@ -1,4 +1,5 @@
-from typing import Any, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Optional
 
 from langchain_qdrant.sparse_embeddings import SparseEmbeddings, SparseVector
 
@@ -34,7 +35,7 @@ class FastEmbedSparse(SparseEmbeddings):
                                       If `None`, don't use data-parallel processing,\
                                       use default onnxruntime threading instead.\
                                       Defaults to None.
-            **kwargs: Additional options to pass to fastembed.SparseTextEmbedding
+            kwargs: Additional options to pass to fastembed.SparseTextEmbedding
         Raises:
             ValueError: If the model_name is not supported in SparseTextEmbedding.
         """
@@ -56,7 +57,7 @@ class FastEmbedSparse(SparseEmbeddings):
             **kwargs,
         )
 
-    def embed_documents(self, texts: List[str]) -> List[SparseVector]:
+    def embed_documents(self, texts: list[str]) -> list[SparseVector]:
         results = self._model.embed(
             texts, batch_size=self._batch_size, parallel=self._parallel
         )

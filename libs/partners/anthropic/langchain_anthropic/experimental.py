@@ -1,13 +1,11 @@
 import json
 from typing import (
     Any,
-    Dict,
-    List,
     Union,
 )
 
 from langchain_core._api import deprecated
-from langchain_core.pydantic_v1 import Field
+from pydantic import PrivateAttr
 
 from langchain_anthropic.chat_models import ChatAnthropic
 
@@ -44,7 +42,7 @@ TOOL_PARAMETER_FORMAT = """<parameter>
 </parameter>"""
 
 
-def _get_type(parameter: Dict[str, Any]) -> str:
+def _get_type(parameter: dict[str, Any]) -> str:
     if "type" in parameter:
         return parameter["type"]
     if "anyOf" in parameter:
@@ -54,9 +52,9 @@ def _get_type(parameter: Dict[str, Any]) -> str:
     return json.dumps(parameter)
 
 
-def get_system_message(tools: List[Dict]) -> str:
+def get_system_message(tools: list[dict]) -> str:
     """Generate a system message that describes the available tools."""
-    tools_data: List[Dict] = [
+    tools_data: list[dict] = [
         {
             "tool_name": tool["name"],
             "tool_description": tool["description"],
@@ -86,13 +84,13 @@ def get_system_message(tools: List[Dict]) -> str:
     return SYSTEM_PROMPT_FORMAT.format(formatted_tools=tools_formatted)
 
 
-def _xml_to_dict(t: Any) -> Union[str, Dict[str, Any]]:
+def _xml_to_dict(t: Any) -> Union[str, dict[str, Any]]:
     # Base case: If the element has no children, return its text or an empty string.
     if len(t) == 0:
         return t.text or ""
 
     # Recursive case: The element has children. Convert them into a dictionary.
-    d: Dict[str, Any] = {}
+    d: dict[str, Any] = {}
     for child in t:
         if child.tag not in d:
             d[child.tag] = _xml_to_dict(child)
@@ -104,7 +102,7 @@ def _xml_to_dict(t: Any) -> Union[str, Dict[str, Any]]:
     return d
 
 
-def _xml_to_function_call(invoke: Any, tools: List[Dict]) -> Dict[str, Any]:
+def _xml_to_function_call(invoke: Any, tools: list[dict]) -> dict[str, Any]:
     name = invoke.find("tool_name").text
     arguments = _xml_to_dict(invoke.find("parameters"))
 
@@ -135,7 +133,7 @@ def _xml_to_function_call(invoke: Any, tools: List[Dict]) -> Dict[str, Any]:
     }
 
 
-def _xml_to_tool_calls(elem: Any, tools: List[Dict]) -> List[Dict[str, Any]]:
+def _xml_to_tool_calls(elem: Any, tools: list[dict]) -> list[dict[str, Any]]:
     """
     Convert an XML element and its children into a dictionary of dictionaries.
     """
@@ -146,7 +144,7 @@ def _xml_to_tool_calls(elem: Any, tools: List[Dict]) -> List[Dict[str, Any]]:
 
 @deprecated(
     "0.1.5",
-    removal="0.3.0",
+    removal="1.0.0",
     alternative="ChatAnthropic",
     message=(
         "Tool-calling is now officially supported by the Anthropic API so this "
@@ -156,4 +154,4 @@ def _xml_to_tool_calls(elem: Any, tools: List[Dict]) -> List[Dict[str, Any]]:
 class ChatAnthropicTools(ChatAnthropic):
     """Chat model for interacting with Anthropic functions."""
 
-    _xmllib: Any = Field(default=None)
+    _xmllib: Any = PrivateAttr(default=None)

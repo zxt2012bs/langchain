@@ -47,7 +47,7 @@ try:
     from sqlalchemy.ext.asyncio import async_sessionmaker
 except ImportError:
     # dummy for sqlalchemy < 2
-    async_sessionmaker = type("async_sessionmaker", (type,), {})  # type: ignore
+    async_sessionmaker = type("async_sessionmaker", (type,), {})  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ class SQLChatMessageHistory(BaseChatMessageHistory):
     """
 
     @property
-    @deprecated("0.2.2", removal="0.3.0", alternative="session_maker")
+    @deprecated("0.2.2", removal="1.0", alternative="session_maker")
     def Session(self) -> Union[scoped_session, async_sessionmaker]:
         return self.session_maker
 
@@ -177,17 +177,17 @@ class SQLChatMessageHistory(BaseChatMessageHistory):
             engine_args: Additional configuration for creating database engines.
             async_mode: Whether it is an asynchronous connection.
         """
-        assert not (
-            connection_string and connection
-        ), "connection_string and connection are mutually exclusive"
+        assert not (connection_string and connection), (
+            "connection_string and connection are mutually exclusive"
+        )
         if connection_string:
             global _warned_once_already
             if not _warned_once_already:
                 warn_deprecated(
                     since="0.2.2",
-                    removal="0.3.0",
+                    removal="1.0",
                     name="connection_string",
-                    alternative="Use connection instead",
+                    alternative="connection",
                 )
                 _warned_once_already = True
             connection = connection_string
@@ -242,7 +242,7 @@ class SQLChatMessageHistory(BaseChatMessageHistory):
             self._table_created = True
 
     @property
-    def messages(self) -> List[BaseMessage]:  # type: ignore
+    def messages(self) -> List[BaseMessage]:  # type: ignore[override]
         """Retrieve all messages from db"""
         with self._make_sync_session() as session:
             result = (

@@ -1,18 +1,16 @@
 """Standard LangChain interface tests"""
 
-from typing import Type
-
+import pytest
 from langchain_core.language_models import BaseChatModel
-from langchain_core.runnables import RunnableBinding
-from langchain_standard_tests.unit_tests import ChatModelUnitTests
-from langchain_standard_tests.unit_tests.chat_models import Person, my_adder_tool
+from langchain_core.tools import BaseTool
+from langchain_tests.unit_tests import ChatModelUnitTests
 
 from langchain_openai import AzureChatOpenAI
 
 
 class TestOpenAIStandard(ChatModelUnitTests):
     @property
-    def chat_model_class(self) -> Type[BaseChatModel]:
+    def chat_model_class(self) -> type[BaseChatModel]:
         return AzureChatOpenAI
 
     @property
@@ -23,10 +21,30 @@ class TestOpenAIStandard(ChatModelUnitTests):
             "azure_endpoint": "https://test.azure.com",
         }
 
-    def test_bind_tool_pydantic(self, model: BaseChatModel) -> None:
-        """Does not currently support tool_choice='any'."""
-        if not self.has_tool_calling:
-            return
+    @pytest.mark.xfail(reason="AzureOpenAI does not support tool_choice='any'")
+    def test_bind_tool_pydantic(
+        self, model: BaseChatModel, my_adder_tool: BaseTool
+    ) -> None:
+        super().test_bind_tool_pydantic(model, my_adder_tool)
 
-        tool_model = model.bind_tools([Person, Person.schema(), my_adder_tool])
-        assert isinstance(tool_model, RunnableBinding)
+    @property
+    def init_from_env_params(self) -> tuple[dict, dict, dict]:
+        return (
+            {
+                "AZURE_OPENAI_API_KEY": "api_key",
+                "AZURE_OPENAI_ENDPOINT": "https://endpoint.com",
+                "AZURE_OPENAI_AD_TOKEN": "token",
+                "OPENAI_ORG_ID": "org_id",
+                "OPENAI_API_VERSION": "yyyy-mm-dd",
+                "OPENAI_API_TYPE": "type",
+            },
+            {},
+            {
+                "openai_api_key": "api_key",
+                "azure_endpoint": "https://endpoint.com",
+                "azure_ad_token": "token",
+                "openai_organization": "org_id",
+                "openai_api_version": "yyyy-mm-dd",
+                "openai_api_type": "type",
+            },
+        )

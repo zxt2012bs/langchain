@@ -1,13 +1,12 @@
 import json
 import os
-from typing import List, Tuple
 
 from langchain.agents.format_scratchpad import format_to_openai_function_messages
 from langchain.tools import tool
 from langchain_core.language_models import FakeListLLM
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.utils.function_calling import convert_to_openai_function
+from pydantic import BaseModel, Field
 
 import langchain_prompty
 
@@ -42,8 +41,6 @@ def test_prompty_basic_chain() -> None:
         msgs = json.loads(str(parsed_prompts.content))
     else:
         msgs = parsed_prompts.content
-
-    print(msgs)
 
     assert len(msgs) == 2
     # Test for system and user entries
@@ -111,7 +108,7 @@ def test_prompty_used_in_agent() -> None:
 
     class AgentInput(BaseModel):
         input: str
-        chat_history: List[Tuple[str, str]] = Field(
+        chat_history: list[tuple[str, str]] = Field(
             ...,
             extra={"widget": {"type": "chat", "input": "input", "output": "output"}},
         )
@@ -131,7 +128,6 @@ def test_prompty_used_in_agent() -> None:
             ],
         }
     )
-    print(callbackHandler)
     input_prompt = callbackHandler.input_prompts[0]
 
     # Test for existence of fakeFirstName and fakeLastName in the system message
@@ -157,9 +153,7 @@ def test_all_prompty_can_run() -> None:
     for file in prompty_files:
         file_path = os.path.join(prompty_folder, file)
 
-        print(f"==========\nTesting Prompty file: {file_path}")
         prompt = langchain_prompty.create_chat_prompt(file_path)
         model = FakeEchoPromptChatModel()
         chain = prompt | model
-        output = chain.invoke({})
-        print(f"{file_path}, {output}")
+        chain.invoke({})

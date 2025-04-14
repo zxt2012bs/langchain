@@ -1,8 +1,9 @@
 """Test Base Schema of documents."""
 
-from typing import Iterator, List
+from collections.abc import Iterator
 
 import pytest
+from typing_extensions import override
 
 from langchain_core.document_loaders.base import BaseBlobParser, BaseLoader
 from langchain_core.documents import Document
@@ -15,6 +16,7 @@ def test_base_blob_parser() -> None:
     class MyParser(BaseBlobParser):
         """A simple parser that returns a single document."""
 
+        @override
         def lazy_parse(self, blob: Blob) -> Iterator[Document]:
             """Lazy parsing interface."""
             yield Document(
@@ -33,7 +35,7 @@ def test_base_blob_parser() -> None:
 
 def test_default_lazy_load() -> None:
     class FakeLoader(BaseLoader):
-        def load(self) -> List[Document]:
+        def load(self) -> list[Document]:
             return [
                 Document(page_content="foo"),
                 Document(page_content="bar"),

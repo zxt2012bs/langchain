@@ -31,10 +31,10 @@ def import_all_modules(package_name: str) -> dict:
                 continue
 
             if (
-                isinstance(attr.is_lc_serializable(), bool)  # type: ignore
-                and attr.is_lc_serializable()  # type: ignore
+                isinstance(attr.is_lc_serializable(), bool)
+                and attr.is_lc_serializable()
             ):
-                key = tuple(attr.lc_id())  # type: ignore
+                key = tuple(attr.lc_id())
                 value = tuple(attr.__module__.split(".") + [attr.__name__])
                 if key in classes and classes[key] != value:
                     raise ValueError
@@ -101,6 +101,40 @@ def test_serializable_mapping() -> None:
             "messages",
             "modifier",
             "RemoveMessage",
+        ),
+        ("langchain", "chat_models", "mistralai", "ChatMistralAI"): (
+            "langchain_mistralai",
+            "chat_models",
+            "ChatMistralAI",
+        ),
+        ("langchain_groq", "chat_models", "ChatGroq"): (
+            "langchain_groq",
+            "chat_models",
+            "ChatGroq",
+        ),
+        ("langchain_sambanova", "chat_models", "ChatSambaNovaCloud"): (
+            "langchain_sambanova",
+            "chat_models",
+            "ChatSambaNovaCloud",
+        ),
+        ("langchain_sambanova", "chat_models", "ChatSambaStudio"): (
+            "langchain_sambanova",
+            "chat_models",
+            "ChatSambaStudio",
+        ),
+        # TODO(0.3): For now we're skipping the below two tests. Need to fix
+        # so that it only runs when langchain-aws, langchain-google-genai
+        # are installed.
+        ("langchain", "chat_models", "bedrock", "ChatBedrock"): (
+            "langchain_aws",
+            "chat_models",
+            "bedrock",
+            "ChatBedrock",
+        ),
+        ("langchain_google_genai", "chat_models", "ChatGoogleGenerativeAI"): (
+            "langchain_google_genai",
+            "chat_models",
+            "ChatGoogleGenerativeAI",
         ),
     }
     serializable_modules = import_all_modules("langchain")

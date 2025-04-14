@@ -1,6 +1,9 @@
+import inspect
 import json  # type: ignore[import-not-found]
 import logging
-from typing import Any, AsyncIterator, Dict, Iterator, List, Mapping, Optional
+import os
+from collections.abc import AsyncIterator, Iterator, Mapping
+from typing import Any, Optional
 
 from langchain_core.callbacks import (
     AsyncCallbackManagerForLLMRun,
@@ -8,8 +11,9 @@ from langchain_core.callbacks import (
 )
 from langchain_core.language_models.llms import LLM
 from langchain_core.outputs import GenerationChunk
-from langchain_core.pydantic_v1 import Extra, Field, root_validator
-from langchain_core.utils import get_from_dict_or_env, get_pydantic_field_names
+from langchain_core.utils import from_env, get_pydantic_field_names
+from pydantic import ConfigDict, Field, model_validator
+from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +70,13 @@ class HuggingFaceEndpoint(LLM):
     """  # noqa: E501
 
     endpoint_url: Optional[str] = None
-    """Endpoint URL to use."""
+    """Endpoint URL to use. If repo_id is not specified then this needs to given or 
+    should be pass as env variable in `HF_INFERENCE_ENDPOINT`"""
     repo_id: Optional[str] = None
-    """Repo to use."""
-    huggingfacehub_api_token: Optional[str] = None
+    """Repo to use. If endpoint_url is not specified then this needs to given"""
+    huggingfacehub_api_token: Optional[str] = Field(
+        default_factory=from_env("HUGGINGFACEHUB_API_TOKEN", default=None)
+    )
     max_new_tokens: int = 512
     """Maximum number of generated tokens"""
     top_k: Optional[int] = None
@@ -90,7 +97,7 @@ class HuggingFaceEndpoint(LLM):
     """Whether to prepend the prompt to the generated text"""
     truncate: Optional[int] = None
     """Truncate inputs tokens to the given size"""
-    stop_sequences: List[str] = Field(default_factory=list)
+    stop_sequences: list[str] = Field(default_factory=list)
     """Stop generating tokens if a member of `stop_sequences` is generated"""
     seed: Optional[int] = None
     """Random sampling seed"""
@@ -105,24 +112,24 @@ class HuggingFaceEndpoint(LLM):
     watermark: bool = False
     """Watermarking with [A Watermark for Large Language Models]
     (https://arxiv.org/abs/2301.10226)"""
-    server_kwargs: Dict[str, Any] = Field(default_factory=dict)
+    server_kwargs: dict[str, Any] = Field(default_factory=dict)
     """Holds any text-generation-inference server parameters not explicitly specified"""
-    model_kwargs: Dict[str, Any] = Field(default_factory=dict)
+    model_kwargs: dict[str, Any] = Field(default_factory=dict)
     """Holds any model parameters valid for `call` not explicitly specified"""
     model: str
-    client: Any
-    async_client: Any
+    client: Any = None  #: :meta private:
+    async_client: Any = None  #: :meta private:
     task: Optional[str] = None
     """Task to call the model with.
     Should be a task that returns `generated_text` or `summary_text`."""
 
-    class Config:
-        """Configuration for this pydantic object."""
+    model_config = ConfigDict(
+        extra="forbid",
+    )
 
-        extra = Extra.forbid
-
-    @root_validator(pre=True)
-    def build_extra(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    @model_validator(mode="before")
+    @classmethod
+    def build_extra(cls, values: dict[str, Any]) -> Any:
         """Build extra kwargs from additional params that were passed in."""
         all_required_field_names = get_pydantic_field_names(cls)
         extra = values.get("model_kwargs", {})
@@ -146,23 +153,42 @@ class HuggingFaceEndpoint(LLM):
 
         values["model_kwargs"] = extra
 
-        values["endpoint_url"] = get_from_dict_or_env(
-            values, "endpoint_url", "HF_INFERENCE_ENDPOINT", None
-        )
+        # to correctly create the InferenceClient and AsyncInferenceClient
+        # in validate_environment, we need to populate values["model"].
+        # from InferenceClient docstring:
+        # model (`str`, `optional`):
+        #     The model to run inference with. Can be a model id hosted on the Hugging
+        #       Face Hub, e.g. `bigcode/starcoder`
+        #     or a URL to a deployed Inference Endpoint. Defaults to None, in which
+        #       case a recommended model is
+        #     automatically selected for the task.
 
-        if values["endpoint_url"] is None and "repo_id" not in values:
+        # this string could be in 3 places of descending priority:
+        # 2. values["model"] or values["endpoint_url"] or values["repo_id"]
+        #       (equal priority - don't allow both set)
+        # 3. values["HF_INFERENCE_ENDPOINT"] (if none above set)
+
+        model = values.get("model")
+        endpoint_url = values.get("endpoint_url")
+        repo_id = values.get("repo_id")
+
+        if sum([bool(model), bool(endpoint_url), bool(repo_id)]) > 1:
             raise ValueError(
-                "Please specify an `endpoint_url` or `repo_id` for the model."
+                "Please specify either a `model` OR an `endpoint_url` OR a `repo_id`,"
+                "not more than one."
             )
-        if values["endpoint_url"] is not None and "repo_id" in values:
+        values["model"] = (
+            model or endpoint_url or repo_id or os.environ.get("HF_INFERENCE_ENDPOINT")
+        )
+        if not values["model"]:
             raise ValueError(
-                "Please specify either an `endpoint_url` OR a `repo_id`, not both."
+                "Please specify a `model` or an `endpoint_url` or a `repo_id` for the "
+                "model."
             )
-        values["model"] = values.get("endpoint_url") or values.get("repo_id")
         return values
 
-    @root_validator(pre=False, skip_on_failure=True)
-    def validate_environment(cls, values: Dict) -> Dict:
+    @model_validator(mode="after")
+    def validate_environment(self) -> Self:
         """Validate that package is installed and that the API token is valid."""
         try:
             from huggingface_hub import login  # type: ignore[import]
@@ -173,12 +199,8 @@ class HuggingFaceEndpoint(LLM):
                 "Please install it with `pip install huggingface_hub`."
             )
 
-        values["huggingfacehub_api_token"] = get_from_dict_or_env(
-            values, "huggingfacehub_api_token", "HUGGINGFACEHUB_API_TOKEN", None
-        )
-
-        huggingfacehub_api_token = get_from_dict_or_env(
-            values, "huggingfacehub_api_token", "HF_TOKEN", None
+        huggingfacehub_api_token = self.huggingfacehub_api_token or os.getenv(
+            "HF_TOKEN"
         )
 
         if huggingfacehub_api_token is not None:
@@ -192,23 +214,46 @@ class HuggingFaceEndpoint(LLM):
 
         from huggingface_hub import AsyncInferenceClient, InferenceClient
 
-        values["client"] = InferenceClient(
-            model=values["model"],
-            timeout=values["timeout"],
+        # Instantiate clients with supported kwargs
+        sync_supported_kwargs = set(inspect.signature(InferenceClient).parameters)
+        self.client = InferenceClient(
+            model=self.model,
+            timeout=self.timeout,
             token=huggingfacehub_api_token,
-            **values["server_kwargs"],
-        )
-        values["async_client"] = AsyncInferenceClient(
-            model=values["model"],
-            timeout=values["timeout"],
-            token=huggingfacehub_api_token,
-            **values["server_kwargs"],
+            **{
+                key: value
+                for key, value in self.server_kwargs.items()
+                if key in sync_supported_kwargs
+            },
         )
 
-        return values
+        async_supported_kwargs = set(inspect.signature(AsyncInferenceClient).parameters)
+        self.async_client = AsyncInferenceClient(
+            model=self.model,
+            timeout=self.timeout,
+            token=huggingfacehub_api_token,
+            **{
+                key: value
+                for key, value in self.server_kwargs.items()
+                if key in async_supported_kwargs
+            },
+        )
+
+        ignored_kwargs = (
+            set(self.server_kwargs.keys())
+            - sync_supported_kwargs
+            - async_supported_kwargs
+        )
+        if len(ignored_kwargs) > 0:
+            logger.warning(
+                f"Ignoring following parameters as they are not supported by the "
+                f"InferenceClient or AsyncInferenceClient: {ignored_kwargs}."
+            )
+
+        return self
 
     @property
-    def _default_params(self) -> Dict[str, Any]:
+    def _default_params(self) -> dict[str, Any]:
         """Get the default parameters for calling text generation inference API."""
         return {
             "max_new_tokens": self.max_new_tokens,
@@ -241,8 +286,8 @@ class HuggingFaceEndpoint(LLM):
         return "huggingface_endpoint"
 
     def _invocation_params(
-        self, runtime_stop: Optional[List[str]], **kwargs: Any
-    ) -> Dict[str, Any]:
+        self, runtime_stop: Optional[list[str]], **kwargs: Any
+    ) -> dict[str, Any]:
         params = {**self._default_params, **kwargs}
         params["stop_sequences"] = params["stop_sequences"] + (runtime_stop or [])
         return params
@@ -250,7 +295,7 @@ class HuggingFaceEndpoint(LLM):
     def _call(
         self,
         prompt: str,
-        stop: Optional[List[str]] = None,
+        stop: Optional[list[str]] = None,
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
@@ -282,7 +327,7 @@ class HuggingFaceEndpoint(LLM):
     async def _acall(
         self,
         prompt: str,
-        stop: Optional[List[str]] = None,
+        stop: Optional[list[str]] = None,
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
@@ -313,7 +358,7 @@ class HuggingFaceEndpoint(LLM):
     def _stream(
         self,
         prompt: str,
-        stop: Optional[List[str]] = None,
+        stop: Optional[list[str]] = None,
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> Iterator[GenerationChunk]:
@@ -350,7 +395,7 @@ class HuggingFaceEndpoint(LLM):
     async def _astream(
         self,
         prompt: str,
-        stop: Optional[List[str]] = None,
+        stop: Optional[list[str]] = None,
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> AsyncIterator[GenerationChunk]:

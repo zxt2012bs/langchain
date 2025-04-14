@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from enum import Enum
-from typing import Any, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Union
 from warnings import warn
 
 from langchain_core.agents import AgentAction
@@ -158,7 +159,7 @@ class StringEvaluator(_EvalArgsMixin, ABC):
             prediction (str): The LLM or chain prediction to evaluate.
             reference (Optional[str], optional): The reference label to evaluate against.
             input (Optional[str], optional): The input to consider during evaluation.
-            **kwargs: Additional keyword arguments, including callbacks, tags, etc.
+            kwargs: Additional keyword arguments, including callbacks, tags, etc.
         Returns:
             dict: The evaluation results containing the score or value.
                 It is recommended that the dictionary contain the following keys:
@@ -181,7 +182,7 @@ class StringEvaluator(_EvalArgsMixin, ABC):
             prediction (str): The LLM or chain prediction to evaluate.
             reference (Optional[str], optional): The reference label to evaluate against.
             input (Optional[str], optional): The input to consider during evaluation.
-            **kwargs: Additional keyword arguments, including callbacks, tags, etc.
+            kwargs: Additional keyword arguments, including callbacks, tags, etc.
         Returns:
             dict: The evaluation results containing the score or value.
                 It is recommended that the dictionary contain the following keys:
@@ -212,7 +213,7 @@ class StringEvaluator(_EvalArgsMixin, ABC):
             prediction (str): The LLM or chain prediction to evaluate.
             reference (Optional[str], optional): The reference label to evaluate against.
             input (Optional[str], optional): The input to consider during evaluation.
-            **kwargs: Additional keyword arguments, including callbacks, tags, etc.
+            kwargs: Additional keyword arguments, including callbacks, tags, etc.
         Returns:
             dict: The evaluation results containing the score or value.
         """  # noqa: E501
@@ -235,7 +236,7 @@ class StringEvaluator(_EvalArgsMixin, ABC):
             prediction (str): The LLM or chain prediction to evaluate.
             reference (Optional[str], optional): The reference label to evaluate against.
             input (Optional[str], optional): The input to consider during evaluation.
-            **kwargs: Additional keyword arguments, including callbacks, tags, etc.
+            kwargs: Additional keyword arguments, including callbacks, tags, etc.
         Returns:
             dict: The evaluation results containing the score or value.
         """  # noqa: E501
@@ -265,7 +266,7 @@ class PairwiseStringEvaluator(_EvalArgsMixin, ABC):
             prediction_b (str): The output string from the second model.
             reference (Optional[str], optional): The expected output / reference string.
             input (Optional[str], optional): The input string.
-            **kwargs: Additional keyword arguments, such as callbacks and optional reference strings.
+            kwargs: Additional keyword arguments, such as callbacks and optional reference strings.
         Returns:
             dict: A dictionary containing the preference, scores, and/or other information.
         """  # noqa: E501
@@ -286,7 +287,7 @@ class PairwiseStringEvaluator(_EvalArgsMixin, ABC):
             prediction_b (str): The output string from the second model.
             reference (Optional[str], optional): The expected output / reference string.
             input (Optional[str], optional): The input string.
-            **kwargs: Additional keyword arguments, such as callbacks and optional reference strings.
+            kwargs: Additional keyword arguments, such as callbacks and optional reference strings.
         Returns:
             dict: A dictionary containing the preference, scores, and/or other information.
         """  # noqa: E501
@@ -316,7 +317,7 @@ class PairwiseStringEvaluator(_EvalArgsMixin, ABC):
             prediction_b (str): The output string from the second model.
             reference (Optional[str], optional): The expected output / reference string.
             input (Optional[str], optional): The input string.
-            **kwargs: Additional keyword arguments, such as callbacks and optional reference strings.
+            kwargs: Additional keyword arguments, such as callbacks and optional reference strings.
         Returns:
             dict: A dictionary containing the preference, scores, and/or other information.
         """  # noqa: E501
@@ -345,7 +346,7 @@ class PairwiseStringEvaluator(_EvalArgsMixin, ABC):
             prediction_b (str): The output string from the second model.
             reference (Optional[str], optional): The expected output / reference string.
             input (Optional[str], optional): The input string.
-            **kwargs: Additional keyword arguments, such as callbacks and optional reference strings.
+            kwargs: Additional keyword arguments, such as callbacks and optional reference strings.
         Returns:
             dict: A dictionary containing the preference, scores, and/or other information.
         """  # noqa: E501
@@ -372,7 +373,7 @@ class AgentTrajectoryEvaluator(_EvalArgsMixin, ABC):
         self,
         *,
         prediction: str,
-        agent_trajectory: Sequence[Tuple[AgentAction, str]],
+        agent_trajectory: Sequence[tuple[AgentAction, str]],
         input: str,
         reference: Optional[str] = None,
         **kwargs: Any,
@@ -394,7 +395,7 @@ class AgentTrajectoryEvaluator(_EvalArgsMixin, ABC):
         self,
         *,
         prediction: str,
-        agent_trajectory: Sequence[Tuple[AgentAction, str]],
+        agent_trajectory: Sequence[tuple[AgentAction, str]],
         input: str,
         reference: Optional[str] = None,
         **kwargs: Any,
@@ -425,7 +426,7 @@ class AgentTrajectoryEvaluator(_EvalArgsMixin, ABC):
         self,
         *,
         prediction: str,
-        agent_trajectory: Sequence[Tuple[AgentAction, str]],
+        agent_trajectory: Sequence[tuple[AgentAction, str]],
         input: str,
         reference: Optional[str] = None,
         **kwargs: Any,
@@ -455,7 +456,7 @@ class AgentTrajectoryEvaluator(_EvalArgsMixin, ABC):
         self,
         *,
         prediction: str,
-        agent_trajectory: Sequence[Tuple[AgentAction, str]],
+        agent_trajectory: Sequence[tuple[AgentAction, str]],
         input: str,
         reference: Optional[str] = None,
         **kwargs: Any,

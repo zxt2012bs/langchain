@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any
 
 from langchain_core.callbacks import (
     AsyncCallbackManagerForRetrieverRun,
@@ -6,6 +6,7 @@ from langchain_core.callbacks import (
 )
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever, RetrieverLike
+from pydantic import ConfigDict
 
 from langchain.retrievers.document_compressors.base import (
     BaseDocumentCompressor,
@@ -21,10 +22,9 @@ class ContextualCompressionRetriever(BaseRetriever):
     base_retriever: RetrieverLike
     """Base Retriever to use for getting relevant documents."""
 
-    class Config:
-        """Configuration for this pydantic object."""
-
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
 
     def _get_relevant_documents(
         self,
@@ -32,7 +32,7 @@ class ContextualCompressionRetriever(BaseRetriever):
         *,
         run_manager: CallbackManagerForRetrieverRun,
         **kwargs: Any,
-    ) -> List[Document]:
+    ) -> list[Document]:
         """Get documents relevant for a query.
 
         Args:
@@ -58,7 +58,7 @@ class ContextualCompressionRetriever(BaseRetriever):
         *,
         run_manager: AsyncCallbackManagerForRetrieverRun,
         **kwargs: Any,
-    ) -> List[Document]:
+    ) -> list[Document]:
         """Get documents relevant for a query.
 
         Args:

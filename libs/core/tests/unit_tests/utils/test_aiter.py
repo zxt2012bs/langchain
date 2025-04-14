@@ -1,4 +1,4 @@
-from typing import AsyncIterator, List
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -6,7 +6,7 @@ from langchain_core.utils.aiter import abatch_iterate
 
 
 @pytest.mark.parametrize(
-    "input_size, input_iterable, expected_output",
+    ("input_size", "input_iterable", "expected_output"),
     [
         (2, [1, 2, 3, 4, 5], [[1, 2], [3, 4], [5]]),
         (3, [10, 20, 30, 40, 50], [[10, 20, 30], [40, 50]]),
@@ -15,11 +15,11 @@ from langchain_core.utils.aiter import abatch_iterate
     ],
 )
 async def test_abatch_iterate(
-    input_size: int, input_iterable: List[str], expected_output: List[str]
+    input_size: int, input_iterable: list[str], expected_output: list[str]
 ) -> None:
     """Test batching function."""
 
-    async def _to_async_iterable(iterable: List[str]) -> AsyncIterator[str]:
+    async def _to_async_iterable(iterable: list[str]) -> AsyncIterator[str]:
         for item in iterable:
             yield item
 

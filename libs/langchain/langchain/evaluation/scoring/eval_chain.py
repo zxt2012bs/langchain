@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 from langchain_core.callbacks.manager import Callbacks
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.prompts.prompt import PromptTemplate
-from langchain_core.pydantic_v1 import Extra, Field
+from pydantic import ConfigDict, Field
 
 from langchain.chains.constitutional_ai.models import ConstitutionalPrinciple
 from langchain.chains.llm import LLMChain
@@ -50,7 +50,7 @@ _SUPPORTED_CRITERIA = {
 
 
 def resolve_criteria(
-    criteria: Optional[Union[CRITERIA_TYPE, str, List[CRITERIA_TYPE]]],
+    criteria: Optional[Union[CRITERIA_TYPE, str, list[CRITERIA_TYPE]]],
 ) -> dict:
     """Resolve the criteria for the pairwise evaluator.
 
@@ -113,7 +113,7 @@ class ScoreStringResultOutputParser(BaseOutputParser[dict]):
         """
         return "pairwise_string_result"
 
-    def parse(self, text: str) -> Dict[str, Any]:
+    def parse(self, text: str) -> dict[str, Any]:
         """Parse the output text.
 
         Args:
@@ -144,7 +144,7 @@ class ScoreStringResultOutputParser(BaseOutputParser[dict]):
         }
 
 
-class ScoreStringEvalChain(StringEvaluator, LLMEvalChain, LLMChain):
+class ScoreStringEvalChain(StringEvaluator, LLMEvalChain, LLMChain):  # type: ignore[override]
     """A chain for scoring on a scale of 1-10 the output of a model.
 
     Attributes:
@@ -179,10 +179,9 @@ class ScoreStringEvalChain(StringEvaluator, LLMEvalChain, LLMChain):
     criterion_name: str
     """The name of the criterion being evaluated."""
 
-    class Config:
-        """Configuration for the ScoreStringEvalChain."""
-
-        extra = Extra.ignore
+    model_config = ConfigDict(
+        extra="ignore",
+    )
 
     @classmethod
     def is_lc_serializable(cls) -> bool:
@@ -329,8 +328,8 @@ Performance may be significantly worse with other models."
         input: Optional[str] = None,
         reference: Optional[str] = None,
         callbacks: Callbacks = None,
-        tags: Optional[List[str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        tags: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         include_run_info: bool = False,
         **kwargs: Any,
     ) -> dict:
@@ -366,8 +365,8 @@ Performance may be significantly worse with other models."
         reference: Optional[str] = None,
         input: Optional[str] = None,
         callbacks: Callbacks = None,
-        tags: Optional[List[str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        tags: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         include_run_info: bool = False,
         **kwargs: Any,
     ) -> dict:
@@ -397,7 +396,7 @@ Performance may be significantly worse with other models."
         return self._prepare_output(result)
 
 
-class LabeledScoreStringEvalChain(ScoreStringEvalChain):
+class LabeledScoreStringEvalChain(ScoreStringEvalChain):  # type: ignore[override]
     """A chain for scoring the output of a model on a scale of 1-10.
 
     Attributes:

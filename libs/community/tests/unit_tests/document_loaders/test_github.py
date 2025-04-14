@@ -78,17 +78,17 @@ def test_parse_issue() -> None:
         "body": "This is an example issue 1",
     }
     expected_document = Document(
-        page_content=issue["body"],  # type: ignore
+        page_content=issue["body"],  # type: ignore[arg-type]
         metadata={
             "url": issue["html_url"],
             "title": issue["title"],
-            "creator": issue["user"]["login"],  # type: ignore
+            "creator": issue["user"]["login"],  # type: ignore[index]
             "created_at": issue["created_at"],
             "comments": issue["comments"],
             "state": issue["state"],
-            "labels": [label["name"] for label in issue["labels"]],  # type: ignore
-            "assignee": issue["assignee"]["login"],  # type: ignore
-            "milestone": issue["milestone"]["title"],  # type: ignore
+            "labels": [label["name"] for label in issue["labels"]],  # type: ignore[attr-defined]
+            "assignee": issue["assignee"]["login"],  # type: ignore[index]
+            "milestone": issue["milestone"]["title"],  # type: ignore[index]
             "locked": issue["locked"],
             "number": issue["number"],
             "is_pull_request": False,
@@ -171,10 +171,11 @@ def test_github_file_content_get_file_paths(mocker: MockerFixture) -> None:
     assert files[0]["path"] == "readme.md"
 
     # case2: didn't add file_filter
-    loader = GithubFileLoader(  # type: ignore[call-arg]
+    loader = GithubFileLoader(
         repo="shufanhao/langchain",
         access_token="access_token",
         github_api_url="https://github.com",
+        file_filter=None,
     )
 
     # Call the load method
@@ -220,10 +221,11 @@ def test_github_file_content_loader(mocker: MockerFixture) -> None:
     mocker.patch("requests.get", side_effect=[file_path_res, file_content_res])
 
     # case1: file_extension=".md"
-    loader = GithubFileLoader(  # type: ignore[call-arg]
+    loader = GithubFileLoader(
         repo="shufanhao/langchain",
         access_token="access_token",
         github_api_url="https://github.com",
+        file_filter=None,
     )
 
     # Call the load method

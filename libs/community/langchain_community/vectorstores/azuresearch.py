@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import itertools
 import json
 import logging
+import time
 import uuid
 from typing import (
     TYPE_CHECKING,
@@ -29,18 +31,26 @@ from langchain_core.callbacks import (
 )
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-from langchain_core.pydantic_v1 import root_validator
+from langchain_core.exceptions import LangChainException
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.utils import get_from_env
 from langchain_core.vectorstores import VectorStore
+from pydantic import ConfigDict, model_validator
 
 from langchain_community.vectorstores.utils import maximal_marginal_relevance
 
 logger = logging.getLogger()
 
 if TYPE_CHECKING:
+    from azure.core.credentials import TokenCredential
+    from azure.core.credentials_async import AsyncTokenCredential
     from azure.search.documents import SearchClient, SearchItemPaged
-    from azure.search.documents.aio import SearchClient as AsyncSearchClient
+    from azure.search.documents.aio import (
+        AsyncSearchItemPaged,
+    )
+    from azure.search.documents.aio import (
+        SearchClient as AsyncSearchClient,
+    )
     from azure.search.documents.indexes.models import (
         CorsOptions,
         ScoringProfile,
@@ -72,8 +82,9 @@ MAX_UPLOAD_BATCH_SIZE = 1000
 
 def _get_search_client(
     endpoint: str,
-    key: str,
     index_name: str,
+    key: Optional[str] = None,
+    azure_ad_access_token: Optional[str] = None,
     semantic_configuration_name: Optional[str] = None,
     fields: Optional[List[SearchField]] = None,
     vector_search: Optional[VectorSearch] = None,
@@ -83,14 +94,17 @@ def _get_search_client(
     scoring_profiles: Optional[List[ScoringProfile]] = None,
     default_scoring_profile: Optional[str] = None,
     default_fields: Optional[List[SearchField]] = None,
-    user_agent: Optional[str] = "langchain",
+    user_agent: Optional[str] = "langchain-comm-python-azure-search",
     cors_options: Optional[CorsOptions] = None,
     async_: bool = False,
     additional_search_client_options: Optional[Dict[str, Any]] = None,
+    azure_credential: Optional[TokenCredential] = None,
+    azure_async_credential: Optional[AsyncTokenCredential] = None,
 ) -> Union[SearchClient, AsyncSearchClient]:
-    from azure.core.credentials import AzureKeyCredential
+    from azure.core.credentials import AccessToken, AzureKeyCredential, TokenCredential
     from azure.core.exceptions import ResourceNotFoundError
     from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
+    from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
     from azure.search.documents import SearchClient
     from azure.search.documents.aio import SearchClient as AsyncSearchClient
     from azure.search.documents.indexes import SearchIndexClient
@@ -110,17 +124,46 @@ def _get_search_client(
         VectorSearchProfile,
     )
 
+    class AzureBearerTokenCredential(TokenCredential):
+        def __init__(self, token: str):
+            # set the expiry to an hour from now.
+            self._token = AccessToken(token, int(time.time()) + 3600)
+
+        def get_token(
+            self,
+            *scopes: str,
+            claims: Optional[str] = None,
+            tenant_id: Optional[str] = None,
+            enable_cae: bool = False,
+            **kwargs: Any,
+        ) -> AccessToken:
+            return self._token
+
     additional_search_client_options = additional_search_client_options or {}
     default_fields = default_fields or []
-    if key is None:
-        credential = DefaultAzureCredential()
-    elif key.upper() == "INTERACTIVE":
-        credential = InteractiveBrowserCredential()
-        credential.get_token("https://search.azure.com/.default")
+    credential: Union[AzureKeyCredential, TokenCredential, InteractiveBrowserCredential]
+
+    # Determine the appropriate credential to use
+    if key is not None:
+        if key.upper() == "INTERACTIVE":
+            credential = InteractiveBrowserCredential()
+            credential.get_token("https://search.azure.com/.default")
+            async_credential = credential
+        else:
+            credential = AzureKeyCredential(key)
+            async_credential = credential
+    elif azure_ad_access_token is not None:
+        credential = AzureBearerTokenCredential(azure_ad_access_token)
+        async_credential = credential
     else:
-        credential = AzureKeyCredential(key)
+        credential = azure_credential or DefaultAzureCredential()
+        async_credential = azure_async_credential or AsyncDefaultAzureCredential()
+
     index_client: SearchIndexClient = SearchIndexClient(
-        endpoint=endpoint, credential=credential, user_agent=user_agent
+        endpoint=endpoint,
+        credential=credential,
+        user_agent=user_agent,
+        **additional_search_client_options,
     )
     try:
         index_client.get_index(name=index_name)
@@ -233,7 +276,7 @@ def _get_search_client(
         return AsyncSearchClient(
             endpoint=endpoint,
             index_name=index_name,
-            credential=credential,
+            credential=async_credential,
             user_agent=user_agent,
             **additional_search_client_options,
         )
@@ -245,7 +288,7 @@ class AzureSearch(VectorStore):
     def __init__(
         self,
         azure_search_endpoint: str,
-        azure_search_key: str,
+        azure_search_key: Optional[str],
         index_name: str,
         embedding_function: Union[Callable, Embeddings],
         search_type: str = "hybrid",
@@ -261,6 +304,9 @@ class AzureSearch(VectorStore):
         *,
         vector_search_dimensions: Optional[int] = None,
         additional_search_client_options: Optional[Dict[str, Any]] = None,
+        azure_ad_access_token: Optional[str] = None,
+        azure_credential: Optional[TokenCredential] = None,
+        azure_async_credential: Optional[AsyncTokenCredential] = None,
         **kwargs: Any,
     ):
         try:
@@ -314,8 +360,9 @@ class AzureSearch(VectorStore):
             user_agent += " " + kwargs["user_agent"]
         self.client = _get_search_client(
             azure_search_endpoint,
-            azure_search_key,
             index_name,
+            azure_search_key,
+            azure_ad_access_token,
             semantic_configuration_name=semantic_configuration_name,
             fields=fields,
             vector_search=vector_search,
@@ -326,11 +373,13 @@ class AzureSearch(VectorStore):
             user_agent=user_agent,
             cors_options=cors_options,
             additional_search_client_options=additional_search_client_options,
+            azure_credential=azure_credential,
         )
         self.async_client = _get_search_client(
             azure_search_endpoint,
-            azure_search_key,
             index_name,
+            azure_search_key,
+            azure_ad_access_token,
             semantic_configuration_name=semantic_configuration_name,
             fields=fields,
             vector_search=vector_search,
@@ -341,6 +390,8 @@ class AzureSearch(VectorStore):
             user_agent=user_agent,
             cors_options=cors_options,
             async_=True,
+            azure_credential=azure_credential,
+            azure_async_credential=azure_async_credential,
         )
         self.search_type = search_type
         self.semantic_configuration_name = semantic_configuration_name
@@ -358,6 +409,31 @@ class AzureSearch(VectorStore):
         self._default_fields = default_fields
         self._user_agent = user_agent
         self._cors_options = cors_options
+
+    def __del__(self) -> None:
+        # Close the sync client
+        if hasattr(self, "client") and self.client:
+            self.client.close()
+
+        # Close the async client
+        if hasattr(self, "async_client") and self.async_client:
+            # Check if we're in an existing event loop
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Schedule the coroutine to close the async client
+                    loop.create_task(self.async_client.close())
+                else:
+                    # If no event loop is running, run the coroutine directly
+                    loop.run_until_complete(self.async_client.close())
+            except RuntimeError:
+                # Handle the case where there's no event loop
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self.async_client.close())
+                finally:
+                    loop.close()
 
     @property
     def embeddings(self) -> Optional[Embeddings]:
@@ -396,6 +472,12 @@ class AzureSearch(VectorStore):
             logger.debug("Nothing to insert, skipping.")
             return []
 
+        # when `keys` are not passed in and there is `ids` in kwargs, use those instead
+        # base class expects `ids` passed in rather than `keys`
+        # https://github.com/langchain-ai/langchain/blob/4cdaca67dc51dba887289f56c6fead3c1a52f97d/libs/core/langchain_core/vectorstores/base.py#L65
+        if (not keys) and ("ids" in kwargs) and (len(kwargs["ids"]) == len(embeddings)):
+            keys = kwargs["ids"]
+
         return self.add_embeddings(zip(texts, embeddings), metadatas, keys=keys)
 
     async def aadd_texts(
@@ -420,6 +502,12 @@ class AzureSearch(VectorStore):
             logger.debug("Nothing to insert, skipping.")
             return []
 
+        # when `keys` are not passed in and there is `ids` in kwargs, use those instead
+        # base class expects `ids` passed in rather than `keys`
+        # https://github.com/langchain-ai/langchain/blob/4cdaca67dc51dba887289f56c6fead3c1a52f97d/libs/core/langchain_core/vectorstores/base.py#L65
+        if (not keys) and ("ids" in kwargs) and (len(kwargs["ids"]) == len(embeddings)):
+            keys = kwargs["ids"]
+
         return await self.aadd_embeddings(zip(texts, embeddings), metadatas, keys=keys)
 
     def add_embeddings(
@@ -436,9 +524,13 @@ class AzureSearch(VectorStore):
         data = []
         for i, (text, embedding) in enumerate(text_embeddings):
             # Use provided key otherwise use default key
-            key = keys[i] if keys else str(uuid.uuid4())
-            # Encoding key for Azure Search valid characters
-            key = base64.urlsafe_b64encode(bytes(key, "utf-8")).decode("ascii")
+            if keys:
+                key = keys[i]
+            else:
+                key = str(uuid.uuid4())
+                # Encoding key for Azure Search valid characters
+                key = base64.urlsafe_b64encode(bytes(key, "utf-8")).decode("ascii")
+
             metadata = metadatas[i] if metadatas else {}
             # Add data to index
             # Additional metadata to fields mapping
@@ -463,7 +555,7 @@ class AzureSearch(VectorStore):
                 response = self.client.upload_documents(documents=data)
                 # Check if all documents were successfully uploaded
                 if not all(r.succeeded for r in response):
-                    raise Exception(response)
+                    raise LangChainException(response)
                 # Reset data
                 data = []
 
@@ -477,7 +569,7 @@ class AzureSearch(VectorStore):
         if all(r.succeeded for r in response):
             return ids
         else:
-            raise Exception(response)
+            raise LangChainException(response)
 
     async def aadd_embeddings(
         self,
@@ -517,26 +609,24 @@ class AzureSearch(VectorStore):
             ids.append(key)
             # Upload data in batches
             if len(data) == MAX_UPLOAD_BATCH_SIZE:
-                async with self.async_client as async_client:
-                    response = await async_client.upload_documents(documents=data)
-                    # Check if all documents were successfully uploaded
-                    if not all(r.succeeded for r in response):
-                        raise Exception(response)
-                    # Reset data
-                    data = []
+                response = await self.async_client.upload_documents(documents=data)
+                # Check if all documents were successfully uploaded
+                if not all(r.succeeded for r in response):
+                    raise LangChainException(response)
+                # Reset data
+                data = []
 
         # Considering case where data is an exact multiple of batch-size entries
         if len(data) == 0:
             return ids
 
         # Upload data to index
-        async with self.async_client as async_client:
-            response = await async_client.upload_documents(documents=data)
+        response = await self.async_client.upload_documents(documents=data)
         # Check if all documents were successfully uploaded
         if all(r.succeeded for r in response):
             return ids
         else:
-            raise Exception(response)
+            raise LangChainException(response)
 
     def delete(self, ids: Optional[List[str]] = None, **kwargs: Any) -> bool:
         """Delete by vector ID.
@@ -565,9 +655,8 @@ class AzureSearch(VectorStore):
             False otherwise.
         """
         if ids:
-            async with self.async_client as async_client:
-                res = await async_client.delete_documents([{"id": i} for i in ids])
-                return len(res) > 0
+            res = await self.async_client.delete_documents([{"id": i} for i in ids])
+            return len(res) > 0
         else:
             return False
 
@@ -594,7 +683,8 @@ class AzureSearch(VectorStore):
         self, query: str, *, k: int = 4, **kwargs: Any
     ) -> List[Tuple[Document, float]]:
         """Run similarity search with distance."""
-        search_type = kwargs.get("search_type", self.search_type)
+        # Extract search_type from kwargs, defaulting to self.search_type
+        search_type = kwargs.pop("search_type", self.search_type)
         if search_type == "similarity":
             return self.vector_search_with_score(query, k=k, **kwargs)
         elif search_type == "hybrid":
@@ -747,7 +837,7 @@ class AzureSearch(VectorStore):
             embedding, "", k, filters=filters, **kwargs
         )
 
-        return _results_to_documents(results)
+        return await _aresults_to_documents(results)
 
     def max_marginal_relevance_search_with_score(
         self,
@@ -896,7 +986,7 @@ class AzureSearch(VectorStore):
             embedding, query, k, filters=filters, **kwargs
         )
 
-        return _results_to_documents(results)
+        return await _aresults_to_documents(results)
 
     def hybrid_search_with_relevance_scores(
         self,
@@ -1049,7 +1139,7 @@ class AzureSearch(VectorStore):
         *,
         filters: Optional[str] = None,
         **kwargs: Any,
-    ) -> SearchItemPaged[dict]:
+    ) -> AsyncSearchItemPaged[dict]:
         """Perform vector or hybrid search in the Azure search index.
 
         Args:
@@ -1063,20 +1153,19 @@ class AzureSearch(VectorStore):
         """
         from azure.search.documents.models import VectorizedQuery
 
-        async with self.async_client as async_client:
-            return await async_client.search(
-                search_text=text_query,
-                vector_queries=[
-                    VectorizedQuery(
-                        vector=np.array(embedding, dtype=np.float32).tolist(),
-                        k_nearest_neighbors=k,
-                        fields=FIELDS_CONTENT_VECTOR,
-                    )
-                ],
-                filter=filters,
-                top=k,
-                **kwargs,
-            )
+        return await self.async_client.search(
+            search_text=text_query,
+            vector_queries=[
+                VectorizedQuery(
+                    vector=np.array(embedding, dtype=np.float32).tolist(),
+                    k_nearest_neighbors=k,
+                    fields=FIELDS_CONTENT_VECTOR,
+                )
+            ],
+            filter=filters,
+            top=k,
+            **kwargs,
+        )
 
     def semantic_hybrid_search(
         self, query: str, k: int = 4, **kwargs: Any
@@ -1241,6 +1330,11 @@ class AzureSearch(VectorStore):
                     page_content=result.pop(FIELDS_CONTENT),
                     metadata={
                         **(
+                            {FIELDS_ID: result.pop(FIELDS_ID)}
+                            if FIELDS_ID in result
+                            else {}
+                        ),
+                        **(
                             json.loads(result[FIELDS_METADATA])
                             if FIELDS_METADATA in result
                             else {
@@ -1250,14 +1344,18 @@ class AzureSearch(VectorStore):
                             }
                         ),
                         **{
-                            "captions": {
-                                "text": result.get("@search.captions", [{}])[0].text,
-                                "highlights": result.get("@search.captions", [{}])[
-                                    0
-                                ].highlights,
-                            }
-                            if result.get("@search.captions")
-                            else {},
+                            "captions": (
+                                {
+                                    "text": result.get("@search.captions", [{}])[
+                                        0
+                                    ].text,
+                                    "highlights": result.get("@search.captions", [{}])[
+                                        0
+                                    ].highlights,
+                                }
+                                if result.get("@search.captions")
+                                else {}
+                            ),
                             "answers": semantic_answers_dict.get(
                                 result.get(FIELDS_ID, ""),
                                 "",
@@ -1288,49 +1386,54 @@ class AzureSearch(VectorStore):
         from azure.search.documents.models import VectorizedQuery
 
         vector = await self._aembed_query(query)
-        async with self.async_client as async_client:
-            results = await async_client.search(
-                search_text=query,
-                vector_queries=[
-                    VectorizedQuery(
-                        vector=np.array(vector, dtype=np.float32).tolist(),
-                        k_nearest_neighbors=k,
-                        fields=FIELDS_CONTENT_VECTOR,
-                    )
-                ],
-                filter=filters,
-                query_type="semantic",
-                semantic_configuration_name=self.semantic_configuration_name,
-                query_caption="extractive",
-                query_answer="extractive",
-                top=k,
-                **kwargs,
-            )
-            # Get Semantic Answers
-            semantic_answers = (await results.get_answers()) or []
-            semantic_answers_dict: Dict = {}
-            for semantic_answer in semantic_answers:
-                semantic_answers_dict[semantic_answer.key] = {
-                    "text": semantic_answer.text,
-                    "highlights": semantic_answer.highlights,
-                }
-            # Convert results to Document objects
-            docs = [
-                (
-                    Document(
-                        page_content=result.pop(FIELDS_CONTENT),
-                        metadata={
-                            **(
-                                json.loads(result[FIELDS_METADATA])
-                                if FIELDS_METADATA in result
-                                else {
-                                    k: v
-                                    for k, v in result.items()
-                                    if k != FIELDS_CONTENT_VECTOR
-                                }
-                            ),
-                            **{
-                                "captions": {
+        results = await self.async_client.search(
+            search_text=query,
+            vector_queries=[
+                VectorizedQuery(
+                    vector=np.array(vector, dtype=np.float32).tolist(),
+                    k_nearest_neighbors=k,
+                    fields=FIELDS_CONTENT_VECTOR,
+                )
+            ],
+            filter=filters,
+            query_type="semantic",
+            semantic_configuration_name=self.semantic_configuration_name,
+            query_caption="extractive",
+            query_answer="extractive",
+            top=k,
+            **kwargs,
+        )
+        # Get Semantic Answers
+        semantic_answers = (await results.get_answers()) or []
+        semantic_answers_dict: Dict = {}
+        for semantic_answer in semantic_answers:
+            semantic_answers_dict[semantic_answer.key] = {
+                "text": semantic_answer.text,
+                "highlights": semantic_answer.highlights,
+            }
+        # Convert results to Document objects
+        docs = [
+            (
+                Document(
+                    page_content=result.pop(FIELDS_CONTENT),
+                    metadata={
+                        **(
+                            {FIELDS_ID: result.pop(FIELDS_ID)}
+                            if FIELDS_ID in result
+                            else {}
+                        ),
+                        **(
+                            json.loads(result[FIELDS_METADATA])
+                            if FIELDS_METADATA in result
+                            else {
+                                k: v
+                                for k, v in result.items()
+                                if k != FIELDS_CONTENT_VECTOR
+                            }
+                        ),
+                        **{
+                            "captions": (
+                                {
                                     "text": result.get("@search.captions", [{}])[
                                         0
                                     ].text,
@@ -1339,20 +1442,21 @@ class AzureSearch(VectorStore):
                                     ].highlights,
                                 }
                                 if result.get("@search.captions")
-                                else {},
-                                "answers": semantic_answers_dict.get(
-                                    result.get(FIELDS_ID, ""),
-                                    "",
-                                ),
-                            },
+                                else {}
+                            ),
+                            "answers": semantic_answers_dict.get(
+                                result.get(FIELDS_ID, ""),
+                                "",
+                            ),
                         },
-                    ),
-                    float(result["@search.score"]),
-                    float(result["@search.reranker_score"]),
-                )
-                async for result in results
-            ]
-            return docs
+                    },
+                ),
+                float(result["@search.score"]),
+                float(result["@search.reranker_score"]),
+            )
+            async for result in results
+        ]
+        return docs
 
     @classmethod
     def from_texts(
@@ -1362,6 +1466,7 @@ class AzureSearch(VectorStore):
         metadatas: Optional[List[dict]] = None,
         azure_search_endpoint: str = "",
         azure_search_key: str = "",
+        azure_ad_access_token: Optional[str] = None,
         index_name: str = "langchain-index",
         fields: Optional[List[SearchField]] = None,
         **kwargs: Any,
@@ -1373,6 +1478,7 @@ class AzureSearch(VectorStore):
             index_name,
             embedding,
             fields=fields,
+            azure_ad_access_token=azure_ad_access_token,
             **kwargs,
         )
         azure_search.add_texts(texts, metadatas, **kwargs)
@@ -1386,6 +1492,7 @@ class AzureSearch(VectorStore):
         metadatas: Optional[List[dict]] = None,
         azure_search_endpoint: str = "",
         azure_search_key: str = "",
+        azure_ad_access_token: Optional[str] = None,
         index_name: str = "langchain-index",
         fields: Optional[List[SearchField]] = None,
         **kwargs: Any,
@@ -1397,6 +1504,7 @@ class AzureSearch(VectorStore):
             index_name,
             embedding,
             fields=fields,
+            azure_ad_access_token=azure_ad_access_token,
             **kwargs,
         )
         await azure_search.aadd_texts(texts, metadatas, **kwargs)
@@ -1463,14 +1571,13 @@ class AzureSearch(VectorStore):
         azure_search.add_embeddings(text_embeddings, metadatas, **kwargs)
         return azure_search
 
-    def as_retriever(self, **kwargs: Any) -> AzureSearchVectorStoreRetriever:  # type: ignore
+    def as_retriever(self, **kwargs: Any) -> AzureSearchVectorStoreRetriever:  # type: ignore[override]
         """Return AzureSearchVectorStoreRetriever initialized from this VectorStore.
 
         Args:
-            search_type (Optional[str]): Defines the type of search that
-                the Retriever should perform.
-                Can be "similarity" (default), "hybrid", or
-                    "semantic_hybrid".
+            search_type (Optional[str]): Overrides the type of search that
+                the Retriever should perform. Defaults to `self.search_type`.
+                Can be "similarity", "hybrid", or "semantic_hybrid".
             search_kwargs (Optional[Dict]): Keyword arguments to pass to the
                 search function. Can include things like:
                     score_threshold: Minimum relevance threshold
@@ -1483,6 +1590,9 @@ class AzureSearch(VectorStore):
         Returns:
             AzureSearchVectorStoreRetriever: Retriever class for VectorStore.
         """
+        search_type = kwargs.get("search_type", self.search_type)
+        kwargs["search_type"] = search_type
+
         tags = kwargs.pop("tags", None) or []
         tags.extend(self._get_retriever_tags())
         return AzureSearchVectorStoreRetriever(vectorstore=self, **kwargs, tags=tags)
@@ -1495,7 +1605,7 @@ class AzureSearchVectorStoreRetriever(BaseRetriever):
     """Azure Search instance used to find similar documents."""
     search_type: str = "hybrid"
     """Type of search to perform. Options are "similarity", "hybrid",
-    "semantic_hybrid", "similarity_score_threshold", "hybrid_score_threshold", 
+    "semantic_hybrid", "similarity_score_threshold", "hybrid_score_threshold",
     or "semantic_hybrid_score_threshold"."""
     k: int = 4
     """Number of documents to return."""
@@ -1518,13 +1628,13 @@ class AzureSearchVectorStoreRetriever(BaseRetriever):
         "semantic_hybrid_score_threshold",
     )
 
-    class Config:
-        """Configuration for this pydantic object."""
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
 
-        arbitrary_types_allowed = True
-
-    @root_validator(pre=True)
-    def validate_search_type(cls, values: Dict) -> Dict:
+    @model_validator(mode="before")
+    @classmethod
+    def validate_search_type(cls, values: Dict) -> Any:
         """Validate search type."""
         if "search_type" in values:
             search_type = values["search_type"]
@@ -1630,6 +1740,19 @@ def _results_to_documents(
     return docs
 
 
+async def _aresults_to_documents(
+    results: AsyncSearchItemPaged[Dict],
+) -> List[Tuple[Document, float]]:
+    docs = [
+        (
+            _result_to_document(result),
+            float(result["@search.score"]),
+        )
+        async for result in results
+    ]
+    return docs
+
+
 async def _areorder_results_with_maximal_marginal_relevance(
     results: SearchItemPaged[Dict],
     query_embedding: np.ndarray,
@@ -1643,7 +1766,7 @@ async def _areorder_results_with_maximal_marginal_relevance(
             float(result["@search.score"]),
             result[FIELDS_CONTENT_VECTOR],
         )
-        for result in results
+        async for result in results
     ]
     documents, scores, vectors = map(list, zip(*docs))
 
@@ -1658,7 +1781,7 @@ async def _areorder_results_with_maximal_marginal_relevance(
         # Function can return -1 index
         if x == -1:
             break
-        ret.append((documents[x], scores[x]))  # type: ignore
+        ret.append((documents[x], scores[x]))
 
     return ret
 
@@ -1678,6 +1801,8 @@ def _reorder_results_with_maximal_marginal_relevance(
         )
         for result in results
     ]
+    if not docs:
+        return []
     documents, scores, vectors = map(list, zip(*docs))
 
     # Get the new order of results.
@@ -1691,18 +1816,34 @@ def _reorder_results_with_maximal_marginal_relevance(
         # Function can return -1 index
         if x == -1:
             break
-        ret.append((documents[x], scores[x]))  # type: ignore
+        ret.append((documents[x], scores[x]))
 
     return ret
 
 
 def _result_to_document(result: Dict) -> Document:
+    # Fields metadata
+    if FIELDS_METADATA in result:
+        if isinstance(result[FIELDS_METADATA], dict):
+            fields_metadata = result[FIELDS_METADATA]
+        else:
+            fields_metadata = json.loads(result[FIELDS_METADATA])
+    else:
+        fields_metadata = {
+            key: value
+            for key, value in result.items()
+            if key not in [FIELDS_CONTENT_VECTOR, FIELDS_CONTENT]
+        }
+    # IDs
+    if FIELDS_ID in result:
+        fields_id = {FIELDS_ID: result.pop(FIELDS_ID)}
+    else:
+        fields_id = {}
     return Document(
-        page_content=result.pop(FIELDS_CONTENT),
-        metadata=json.loads(result[FIELDS_METADATA])
-        if FIELDS_METADATA in result
-        else {
-            key: value for key, value in result.items() if key != FIELDS_CONTENT_VECTOR
+        page_content=result[FIELDS_CONTENT],
+        metadata={
+            **fields_id,
+            **fields_metadata,
         },
     )
 

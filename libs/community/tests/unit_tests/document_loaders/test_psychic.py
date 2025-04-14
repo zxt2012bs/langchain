@@ -1,4 +1,6 @@
-from typing import Dict
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -6,24 +8,27 @@ from langchain_core.documents import Document
 
 from langchain_community.document_loaders.psychic import PsychicLoader
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 
 @pytest.fixture
-def mock_psychic():  # type: ignore
+def mock_psychic() -> Iterator[MagicMock]:
     with patch("psychicapi.Psychic") as mock_psychic:
         yield mock_psychic
 
 
 @pytest.fixture
-def mock_connector_id():  # type: ignore
+def mock_connector_id() -> Iterator[MagicMock]:
     with patch("psychicapi.ConnectorId") as mock_connector_id:
         yield mock_connector_id
 
 
 @pytest.mark.requires("psychicapi")
 class TestPsychicLoader:
-    MOCK_API_KEY = "api_key"
-    MOCK_CONNECTOR_ID = "notion"
-    MOCK_ACCOUNT_ID = "account_id"
+    MOCK_API_KEY: str = "api_key"
+    MOCK_CONNECTOR_ID: str = "notion"
+    MOCK_ACCOUNT_ID: str = "account_id"
 
     def test_psychic_loader_initialization(
         self, mock_psychic: MagicMock, mock_connector_id: MagicMock

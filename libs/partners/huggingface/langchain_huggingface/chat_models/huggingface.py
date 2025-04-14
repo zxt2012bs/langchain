@@ -1,15 +1,13 @@
 """Hugging Face Chat Wrapper."""
 
+import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import (
     Any,
     Callable,
-    Dict,
-    List,
     Literal,
     Optional,
-    Sequence,
-    Type,
     Union,
     cast,
 )
@@ -29,10 +27,11 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.outputs import ChatGeneration, ChatResult, LLMResult
-from langchain_core.pydantic_v1 import BaseModel, root_validator
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
+from pydantic import model_validator
+from typing_extensions import Self
 
 from langchain_huggingface.llms.huggingface_endpoint import HuggingFaceEndpoint
 from langchain_huggingface.llms.huggingface_pipeline import HuggingFacePipeline
@@ -44,8 +43,8 @@ DEFAULT_SYSTEM_PROMPT = """You are a helpful, respectful, and honest assistant."
 class TGI_RESPONSE:
     """Response from the TextGenInference API."""
 
-    choices: List[Any]
-    usage: Dict
+    choices: list[Any]
+    usage: dict
 
 
 @dataclass
@@ -54,12 +53,12 @@ class TGI_MESSAGE:
 
     role: str
     content: str
-    tool_calls: List[Dict]
+    tool_calls: list[dict]
 
 
 def _convert_message_to_chat_message(
     message: BaseMessage,
-) -> Dict:
+) -> dict:
     if isinstance(message, ChatMessage):
         return dict(role=message.role, content=message.content)
     elif isinstance(message, HumanMessage):
@@ -102,12 +101,13 @@ def _convert_TGI_message_to_LC_message(
     content = cast(str, _message.content)
     if content is None:
         content = ""
-    additional_kwargs: Dict = {}
+    additional_kwargs: dict = {}
     if tool_calls := _message.tool_calls:
         if "arguments" in tool_calls[0]["function"]:
-            functions_string = str(tool_calls[0]["function"].pop("arguments"))
-            corrected_functions = functions_string.replace("'", '"')
-            tool_calls[0]["function"]["arguments"] = corrected_functions
+            functions = tool_calls[0]["function"].pop("arguments")
+            tool_calls[0]["function"]["arguments"] = json.dumps(
+                functions, ensure_ascii=False
+            )
         additional_kwargs["tool_calls"] = tool_calls
     return AIMessage(content=content, additional_kwargs=additional_kwargs)
 
@@ -265,7 +265,7 @@ class ChatHuggingFace(BaseChatModel):
     Tool calling:
         .. code-block:: python
 
-            from langchain_core.pydantic_v1 import BaseModel, Field
+            from pydantic import BaseModel, Field
 
             class GetWeather(BaseModel):
                 '''Get the current weather in a given location'''
@@ -325,20 +325,20 @@ class ChatHuggingFace(BaseChatModel):
             else self.tokenizer
         )
 
-    @root_validator(pre=False, skip_on_failure=True)
-    def validate_llm(cls, values: dict) -> dict:
+    @model_validator(mode="after")
+    def validate_llm(self) -> Self:
         if (
-            not _is_huggingface_hub(values["llm"])
-            and not _is_huggingface_textgen_inference(values["llm"])
-            and not _is_huggingface_endpoint(values["llm"])
-            and not _is_huggingface_pipeline(values["llm"])
+            not _is_huggingface_hub(self.llm)
+            and not _is_huggingface_textgen_inference(self.llm)
+            and not _is_huggingface_endpoint(self.llm)
+            and not _is_huggingface_pipeline(self.llm)
         ):
             raise TypeError(
                 "Expected llm to be one of HuggingFaceTextGenInference, "
                 "HuggingFaceEndpoint, HuggingFaceHub, HuggingFacePipeline "
-                f"received {type(values['llm'])}"
+                f"received {type(self.llm)}"
             )
-        return values
+        return self
 
     def _create_chat_result(self, response: TGI_RESPONSE) -> ChatResult:
         generations = []
@@ -355,8 +355,8 @@ class ChatHuggingFace(BaseChatModel):
 
     def _generate(
         self,
-        messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
@@ -377,8 +377,8 @@ class ChatHuggingFace(BaseChatModel):
 
     async def _agenerate(
         self,
-        messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
@@ -395,7 +395,7 @@ class ChatHuggingFace(BaseChatModel):
 
     def _to_chat_prompt(
         self,
-        messages: List[BaseMessage],
+        messages: list[BaseMessage],
     ) -> str:
         """Convert a list of messages into a prompt format expected by wrapped LLM."""
         if not messages:
@@ -469,9 +469,11 @@ class ChatHuggingFace(BaseChatModel):
 
     def bind_tools(
         self,
-        tools: Sequence[Union[Dict[str, Any], Type[BaseModel], Callable, BaseTool]],
+        tools: Sequence[Union[dict[str, Any], type, Callable, BaseTool]],
         *,
-        tool_choice: Optional[Union[dict, str, Literal["auto", "none"], bool]] = None,
+        tool_choice: Optional[
+            Union[dict, str, Literal["auto", "none", "required"], bool]
+        ] = None,
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, BaseMessage]:
         """Bind tool-like objects to this chat model.
@@ -480,9 +482,8 @@ class ChatHuggingFace(BaseChatModel):
 
         Args:
             tools: A list of tool definitions to bind to this chat model.
-                Can be  a dictionary, pydantic model, callable, or BaseTool. Pydantic
-                models, callables, and BaseTools will be automatically converted to
-                their schema dictionary representation.
+                Supports any tool definition handled by
+                :meth:`langchain_core.utils.function_calling.convert_to_openai_tool`.
             tool_choice: Which tool to require the model to call.
                 Must be the name of the single provided function or
                 "auto" to automatically determine which function to call
@@ -500,7 +501,7 @@ class ChatHuggingFace(BaseChatModel):
                     f"tool. Received {len(formatted_tools)} tools."
                 )
             if isinstance(tool_choice, str):
-                if tool_choice not in ("auto", "none"):
+                if tool_choice not in ("auto", "none", "required"):
                     tool_choice = {
                         "type": "function",
                         "function": {"name": tool_choice},
@@ -525,8 +526,8 @@ class ChatHuggingFace(BaseChatModel):
         return super().bind(tools=formatted_tools, **kwargs)
 
     def _create_message_dicts(
-        self, messages: List[BaseMessage], stop: Optional[List[str]]
-    ) -> List[Dict[Any, Any]]:
+        self, messages: list[BaseMessage], stop: Optional[list[str]]
+    ) -> list[dict[Any, Any]]:
         message_dicts = [_convert_message_to_chat_message(m) for m in messages]
         return message_dicts
 

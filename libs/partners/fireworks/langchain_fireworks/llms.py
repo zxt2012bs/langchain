@@ -1,7 +1,7 @@
 """Wrapper around Fireworks AI's Completion API."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import requests
 from aiohttp import ClientSession
@@ -10,13 +10,9 @@ from langchain_core.callbacks import (
     CallbackManagerForLLMRun,
 )
 from langchain_core.language_models.llms import LLM
-from langchain_core.pydantic_v1 import Extra, Field, SecretStr, root_validator
-from langchain_core.utils import (
-    convert_to_secret_str,
-    get_from_dict_or_env,
-    get_pydantic_field_names,
-)
-from langchain_core.utils.utils import build_extra_kwargs
+from langchain_core.utils import get_pydantic_field_names
+from langchain_core.utils.utils import _build_model_kwargs, secret_from_env
+from pydantic import ConfigDict, Field, SecretStr, model_validator
 
 from langchain_fireworks.version import __version__
 
@@ -39,8 +35,21 @@ class Fireworks(LLM):
 
     base_url: str = "https://api.fireworks.ai/inference/v1/completions"
     """Base inference API URL."""
-    fireworks_api_key: SecretStr = Field(default=None, alias="api_key")
-    """Fireworks AI API key. Get it here: https://fireworks.ai"""
+    fireworks_api_key: SecretStr = Field(
+        alias="api_key",
+        default_factory=secret_from_env(
+            "FIREWORKS_API_KEY",
+            error_message=(
+                "You must specify an api key. "
+                "You can pass it an argument as `api_key=...` or "
+                "set the environment variable `FIREWORKS_API_KEY`."
+            ),
+        ),
+    )
+    """Fireworks API key.
+    
+    Automatically read from env variable `FIREWORKS_API_KEY` if not provided.
+    """
     model: str
     """Model name. Available models listed here: 
         https://readme.fireworks.ai/
@@ -54,7 +63,7 @@ class Fireworks(LLM):
         for question answering or summarization. A value greater than 1 introduces more 
         randomness in the output.
     """
-    model_kwargs: Dict[str, Any] = Field(default_factory=dict)
+    model_kwargs: dict[str, Any] = Field(default_factory=dict)
     """Holds any model parameters valid for `create` call not explicitly specified."""
     top_k: Optional[int] = None
     """Used to limit the number of choices for the next predicted word or token. It 
@@ -74,28 +83,17 @@ class Fireworks(LLM):
         the response for each token generation step.
     """
 
-    class Config:
-        """Configuration for this pydantic object."""
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
 
-        extra = Extra.forbid
-        allow_population_by_field_name = True
-
-    @root_validator(pre=True)
-    def build_extra(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    @model_validator(mode="before")
+    @classmethod
+    def build_extra(cls, values: dict[str, Any]) -> Any:
         """Build extra kwargs from additional params that were passed in."""
         all_required_field_names = get_pydantic_field_names(cls)
-        extra = values.get("model_kwargs", {})
-        values["model_kwargs"] = build_extra_kwargs(
-            extra, values, all_required_field_names
-        )
-        return values
-
-    @root_validator(pre=False, skip_on_failure=True)
-    def validate_environment(cls, values: Dict) -> Dict:
-        """Validate that api key exists in environment."""
-        values["fireworks_api_key"] = convert_to_secret_str(
-            get_from_dict_or_env(values, "fireworks_api_key", "FIREWORKS_API_KEY")
-        )
+        values = _build_model_kwargs(values, all_required_field_names)
         return values
 
     @property
@@ -111,7 +109,7 @@ class Fireworks(LLM):
         return f"langchain-fireworks/{__version__}"
 
     @property
-    def default_params(self) -> Dict[str, Any]:
+    def default_params(self) -> dict[str, Any]:
         return {
             "model": self.model,
             "temperature": self.temperature,
@@ -124,7 +122,7 @@ class Fireworks(LLM):
     def _call(
         self,
         prompt: str,
-        stop: Optional[List[str]] = None,
+        stop: Optional[list[str]] = None,
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
@@ -141,7 +139,7 @@ class Fireworks(LLM):
             "Content-Type": "application/json",
         }
         stop_to_use = stop[0] if stop and len(stop) == 1 else stop
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             **self.default_params,
             "prompt": prompt,
             "stop": stop_to_use,
@@ -170,7 +168,7 @@ class Fireworks(LLM):
     async def _acall(
         self,
         prompt: str,
-        stop: Optional[List[str]] = None,
+        stop: Optional[list[str]] = None,
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
@@ -187,7 +185,7 @@ class Fireworks(LLM):
             "Content-Type": "application/json",
         }
         stop_to_use = stop[0] if stop and len(stop) == 1 else stop
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             **self.default_params,
             "prompt": prompt,
             "stop": stop_to_use,

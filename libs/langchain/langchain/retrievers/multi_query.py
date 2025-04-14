@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Optional
 
 from langchain_core.callbacks import (
     AsyncCallbackManagerForRetrieverRun,
@@ -19,10 +20,10 @@ from langchain.chains.llm import LLMChain
 logger = logging.getLogger(__name__)
 
 
-class LineListOutputParser(BaseOutputParser[List[str]]):
+class LineListOutputParser(BaseOutputParser[list[str]]):
     """Output parser for a list of lines."""
 
-    def parse(self, text: str) -> List[str]:
+    def parse(self, text: str) -> list[str]:
         lines = text.strip().split("\n")
         return list(filter(None, lines))  # Remove empty lines
 
@@ -40,7 +41,7 @@ DEFAULT_QUERY_PROMPT = PromptTemplate(
 )
 
 
-def _unique_documents(documents: Sequence[Document]) -> List[Document]:
+def _unique_documents(documents: Sequence[Document]) -> list[Document]:
     return [doc for i, doc in enumerate(documents) if doc not in documents[:i]]
 
 
@@ -72,6 +73,8 @@ class MultiQueryRetriever(BaseRetriever):
         Args:
             retriever: retriever to query documents from
             llm: llm for query generation using DEFAULT_QUERY_PROMPT
+            prompt: The prompt which aims to generate several different versions
+                of the given user query
             include_original: Whether to include the original query in the list of
                 generated queries.
 
@@ -91,11 +94,11 @@ class MultiQueryRetriever(BaseRetriever):
         query: str,
         *,
         run_manager: AsyncCallbackManagerForRetrieverRun,
-    ) -> List[Document]:
+    ) -> list[Document]:
         """Get relevant documents given a user query.
 
         Args:
-            question: user query
+            query: user query
 
         Returns:
             Unique union of relevant documents from all generated queries
@@ -108,7 +111,7 @@ class MultiQueryRetriever(BaseRetriever):
 
     async def agenerate_queries(
         self, question: str, run_manager: AsyncCallbackManagerForRetrieverRun
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate queries based upon user input.
 
         Args:
@@ -129,8 +132,8 @@ class MultiQueryRetriever(BaseRetriever):
         return lines
 
     async def aretrieve_documents(
-        self, queries: List[str], run_manager: AsyncCallbackManagerForRetrieverRun
-    ) -> List[Document]:
+        self, queries: list[str], run_manager: AsyncCallbackManagerForRetrieverRun
+    ) -> list[Document]:
         """Run all LLM generated queries.
 
         Args:
@@ -154,11 +157,11 @@ class MultiQueryRetriever(BaseRetriever):
         query: str,
         *,
         run_manager: CallbackManagerForRetrieverRun,
-    ) -> List[Document]:
+    ) -> list[Document]:
         """Get relevant documents given a user query.
 
         Args:
-            question: user query
+            query: user query
 
         Returns:
             Unique union of relevant documents from all generated queries
@@ -171,7 +174,7 @@ class MultiQueryRetriever(BaseRetriever):
 
     def generate_queries(
         self, question: str, run_manager: CallbackManagerForRetrieverRun
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate queries based upon user input.
 
         Args:
@@ -192,8 +195,8 @@ class MultiQueryRetriever(BaseRetriever):
         return lines
 
     def retrieve_documents(
-        self, queries: List[str], run_manager: CallbackManagerForRetrieverRun
-    ) -> List[Document]:
+        self, queries: list[str], run_manager: CallbackManagerForRetrieverRun
+    ) -> list[Document]:
         """Run all LLM generated queries.
 
         Args:
@@ -210,7 +213,7 @@ class MultiQueryRetriever(BaseRetriever):
             documents.extend(docs)
         return documents
 
-    def unique_union(self, documents: List[Document]) -> List[Document]:
+    def unique_union(self, documents: list[Document]) -> list[Document]:
         """Get unique Documents.
 
         Args:
